@@ -116,19 +116,29 @@ fi
 step "Telegram config injection"
 inject_telegram_config
 
-# -- Install socat -----------------------------------
-step "Installing socat"
+# ZeroClaw should always be able to reach the direct API backend.
+set_zeroclaw_provider_port 8318 || exit 1
+
+# -- Optional IPv4 bridge -----------------------------
+step "Preparing optional IPv4 bridge"
 if command -v socat >/dev/null 2>&1; then
-    info "socat already installed"
+    info "socat already installed; public bridge will stay on port 8317"
 elif command -v opkg >/dev/null 2>&1; then
-    info "Installing socat for IPv4 bridge..."
+    info "Trying to install socat for the optional IPv4 bridge..."
     debug "Running opkg update..."
     opkg update >/dev/null 2>&1 || warn "opkg update failed (repos unreachable? kWrt custom firmware?)"
     debug "Running opkg install socat..."
-    opkg install socat 2>/dev/null || warn "socat install failed -- IPv4 access may not work"
+    if opkg install socat 2>/dev/null; then
+        if command -v socat >/dev/null 2>&1; then
+            info "socat installed; public bridge will stay on port 8317"
+        else
+            warn "package manager reported success but socat is still unavailable -- continuing with direct API on port 8318"
+        fi
+    else
+        warn "socat install failed -- continuing with direct API on port 8318"
+    fi
 else
-    warn "opkg not found -- cannot install socat automatically"
-    warn "Install socat manually for IPv4 bridge (port 8317)"
+    warn "opkg not found -- continuing with direct API on port 8318"
 fi
 
 # -- Start services ----------------------------------
@@ -180,13 +190,17 @@ done
 
 if [ "$API_UP" = "1" ] && [ "$SOCAT_UP" = "1" ]; then
     info "CLIProxyAPI is running (socat:8317 -> api:8318)"
-elif [ "$API_UP" = "1" ] && [ "$SOCAT_UP" = "0" ]; then
-    debug "API up but socat not running, starting socat..."
-    socat TCP4-LISTEN:8317,fork,reuseaddr TCP6:[::1]:8318 &
-    if wait_for_port_listening 8317 5; then
-        info "CLIProxyAPI is running (socat:8317 -> api:8318)"
+elif [ "$API_UP" = "1" ]; then
+    if command -v socat >/dev/null 2>&1; then
+        debug "API up but bridge not listening, trying direct socat start..."
+        socat TCP4-LISTEN:8317,fork,reuseaddr TCP6:[::1]:8318 &
+        if wait_for_port_listening 8317 5; then
+            info "CLIProxyAPI is running (socat:8317 -> api:8318)"
+        else
+            warn "Optional socat bridge failed to start -- continuing with direct API on port 8318"
+        fi
     else
-        warn "socat bridge failed to start"
+        warn "socat not available -- continuing with direct API on port 8318"
     fi
 else
     warn "CLIProxyAPI backend (port 8318) did NOT start!"

@@ -68,13 +68,14 @@ if [ "$INSTALL_CLIPROXY_DIR" != "/opt/cliproxyapi" ]; then
     set_cliproxy_auth_dir "$INSTALL_CLIPROXY_DIR/config.yaml" "$INSTALL_CLIPROXY_DIR/auth" || exit 1
 fi
 
-CLIPROXY_PUBLIC_PORT="8317"
+set_zeroclaw_provider_port 8318 || exit 1
+
+CLIPROXY_PUBLIC_PORT="8318"
 if command -v socat >/dev/null 2>&1; then
-    info "socat detected, keeping public bridge on port 8317"
+    CLIPROXY_PUBLIC_PORT="8317"
+    info "socat detected, keeping optional public bridge on port 8317"
 else
-    warn "socat not found, falling back to direct CLIProxyAPI port 8318"
-    CLIPROXY_PUBLIC_PORT="8318"
-    set_zeroclaw_provider_port 8318 || exit 1
+    warn "socat not found, using direct CLIProxyAPI port 8318"
 fi
 
 step "Installing manual service scripts"
@@ -85,7 +86,6 @@ CONFIG="$INSTALL_CLIPROXY_DIR/config.yaml"
 PIDFILE="$MANUAL_PID_DIR/cliproxyapi.pid"
 LOGFILE="$MANUAL_LOG_DIR/cliproxyapi.log"
 SOCAT_PIDFILE="$MANUAL_PID_DIR/cliproxyapi-bridge.pid"
-PUBLIC_PORT="$CLIPROXY_PUBLIC_PORT"
 
 is_alive() {
     [ -f "\$1" ] && kill -0 "\$(cat "\$1")" 2>/dev/null
@@ -102,7 +102,7 @@ start() {
     echo \$! > "\$PIDFILE"
     echo "CLIProxyAPI started (PID \$!)"
 
-    if [ "\$PUBLIC_PORT" = "8317" ] && command -v socat >/dev/null 2>&1; then
+    if command -v socat >/dev/null 2>&1; then
         socat TCP4-LISTEN:8317,fork,reuseaddr TCP4:127.0.0.1:8318 >> "\$LOGFILE" 2>&1 &
         echo \$! > "\$SOCAT_PIDFILE"
         echo "socat bridge started (PID \$!)"
@@ -198,8 +198,12 @@ step "Starting services"
 prepare_fresh_service_start 10
 
 "$MANUAL_SCRIPT_DIR/cliproxyapi-service" start || exit 1
-if wait_for_port_listening "$CLIPROXY_PUBLIC_PORT" 15 || wait_for_port_listening 8318 15; then
-    info "CLIProxyAPI is running on port $CLIPROXY_PUBLIC_PORT"
+if wait_for_port_listening 8318 15; then
+    if [ "$CLIPROXY_PUBLIC_PORT" = "8317" ] && wait_for_port_listening 8317 5; then
+        info "CLIProxyAPI is running (socat:8317 -> api:8318)"
+    else
+        info "CLIProxyAPI is running on direct port 8318"
+    fi
 else
     warn "CLIProxyAPI may not have started. Check: $MANUAL_LOG_DIR/cliproxyapi.log"
     show_port_snapshot 8317 8318

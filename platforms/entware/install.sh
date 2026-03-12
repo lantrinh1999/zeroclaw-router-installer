@@ -180,10 +180,28 @@ info "  /opt/etc/init.d/S99zeroclaw"
 # -- Inject Telegram config --------------------------
 inject_telegram_config
 
-# -- Install socat -----------------------------------
-info "Installing socat via Entware..."
-$ENTWARE_OPKG update >/dev/null 2>&1 || true
-$ENTWARE_OPKG install socat 2>/dev/null || warn "socat install failed -- IPv4 access may not work"
+# ZeroClaw should always use the direct backend, regardless of bridge state.
+set_zeroclaw_provider_port 8318 || exit 1
+
+# -- Optional IPv4 bridge -----------------------------
+CLIPROXY_PUBLIC_PORT="8318"
+info "Preparing optional IPv4 bridge via Entware..."
+if command -v socat >/dev/null 2>&1; then
+    CLIPROXY_PUBLIC_PORT="8317"
+    info "socat already installed; public bridge will stay on port 8317"
+else
+    $ENTWARE_OPKG update >/dev/null 2>&1 || true
+    if $ENTWARE_OPKG install socat 2>/dev/null; then
+        if command -v socat >/dev/null 2>&1; then
+            CLIPROXY_PUBLIC_PORT="8317"
+            info "socat installed; public bridge will stay on port 8317"
+        else
+            warn "package manager reported success but socat is still unavailable -- continuing with direct API on port 8318"
+        fi
+    else
+        warn "socat install failed -- continuing with direct API on port 8318"
+    fi
+fi
 
 # -- Start services ----------------------------------
 info "Ensuring clean runtime state before service start..."
@@ -192,8 +210,12 @@ prepare_fresh_service_start 10
 info "Starting CLIProxyAPI..."
 /opt/etc/init.d/S98cliproxyapi start
 
-if wait_for_port_listening 8317 15; then
-    info "CLIProxyAPI is running (socat:8317 -> api:8318)"
+if wait_for_port_listening 8318 15; then
+    if [ "$CLIPROXY_PUBLIC_PORT" = "8317" ] && wait_for_port_listening 8317 5; then
+        info "CLIProxyAPI is running (socat:8317 -> api:8318)"
+    else
+        info "CLIProxyAPI is running on direct port 8318"
+    fi
 else
     show_port_snapshot 8317 8318
     warn "CLIProxyAPI may not have started. Check: cat /opt/var/log/cliproxyapi.log"
