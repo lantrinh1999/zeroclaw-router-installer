@@ -1,0 +1,33 @@
+# CLIProxyAPI config - OpenWrt Router
+host: "0.0.0.0"
+port: 8318
+
+tls:
+  enable: false
+
+remote-management:
+  allow-remote: true
+  secret-key: "123456"
+  disable-control-panel: false
+
+auth-dir: "/opt/cliproxyapi/auth"
+
+api-keys:
+  - "sk-1234567890"
+
+debug: false
+request-retry: 10              # DO NOT REDUCE - needed when accounts are rate-limited
+max-retry-credentials: 10     # DO NOT REDUCE
+max-retry-interval: 10
+nonstream-keepalive-interval: 10
+
+quota-exceeded:
+  switch-project: true
+  switch-preview-model: true
+
+routing:
+  strategy: "round-robin"
+
+logs-max-total-size-mb: 5
+usage-statistics-enabled: false
+commercial-mode: true

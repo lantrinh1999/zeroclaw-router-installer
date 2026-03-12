@@ -1,0 +1,770 @@
+# ---------------------------------------------
+# ZeroClaw -- Router OpenWrt Config
+# Provider: CLIProxyAPI @ localhost:8317
+# ---------------------------------------------
+
+# -- Core --------------------------------------
+api_key = "sk-1234567890"
+default_provider = "custom:http://127.0.0.1:8317/v1"
+provider_api = "open-ai-chat-completions"
+default_model = "gpt-5.2-codex"
+default_temperature = 0.7
+embedding_routes = []
+
+[model_providers]
+
+[provider]
+
+[observability]
+backend = "none"
+runtime_trace_mode = "none"
+runtime_trace_path = "state/runtime-trace.jsonl"
+runtime_trace_max_entries = 200
+
+# -- Autonomy (FULL) -------------------------
+[autonomy]
+level = "full"
+workspace_only = false
+allowed_commands = ["*"]
+command_context_rules = []
+forbidden_paths = []
+max_actions_per_hour = 999999
+max_cost_per_day_cents = 999999
+require_approval_for_medium_risk = false
+block_high_risk_commands = false
+shell_env_passthrough = []
+allow_sensitive_file_reads = true
+allow_sensitive_file_writes = true
+auto_approve = ["*"]
+always_ask = []
+allowed_roots = []
+non_cli_excluded_tools = ["channel_ack_config"]
+non_cli_approval_approvers = []
+non_cli_natural_language_approval_mode = "direct"
+
+[autonomy.non_cli_natural_language_approval_mode_by_channel]
+
+# -- Security ---------------------------------
+[security]
+roles = []
+canary_tokens = true
+
+[security.sandbox]
+backend = "auto"
+firejail_args = []
+
+[security.resources]
+max_memory_mb = 512
+max_cpu_time_seconds = 60
+max_subprocesses = 10
+memory_monitoring = true
+
+[security.audit]
+enabled = true
+log_path = "audit.log"
+max_size_mb = 100
+sign_events = false
+
+[security.otp]
+enabled = false
+method = "totp"
+token_ttl_secs = 30
+cache_valid_secs = 300
+gated_actions = ["shell", "file_write", "browser_open", "browser", "memory_forget"]
+gated_domains = []
+gated_domain_categories = []
+challenge_delivery = "dm"
+challenge_timeout_secs = 120
+challenge_max_attempts = 3
+
+[security.estop]
+enabled = false
+state_file = "~/.zeroclaw/estop-state.json"
+require_otp_to_resume = true
+
+[security.syscall_anomaly]
+enabled = false
+strict_mode = false
+alert_on_unknown_syscall = false
+max_denied_events_per_minute = 5
+max_total_events_per_minute = 120
+max_alerts_per_minute = 30
+alert_cooldown_secs = 20
+log_path = "syscall-anomalies.log"
+baseline_syscalls = ["read", "write", "open", "openat", "close", "stat", "fstat", "newfstatat", "lseek", "mmap", "mprotect", "munmap", "brk", "rt_sigaction", "rt_sigprocmask", "ioctl", "fcntl", "access", "pipe2", "dup", "dup2", "dup3", "epoll_create1", "epoll_ctl", "epoll_wait", "poll", "ppoll", "select", "futex", "clock_gettime", "nanosleep", "getpid", "gettid", "set_tid_address", "set_robust_list", "clone", "clone3", "fork", "execve", "wait4", "exit", "exit_group", "socket", "connect", "accept", "accept4", "listen", "sendto", "recvfrom", "sendmsg", "recvmsg", "getsockname", "getpeername", "setsockopt", "getsockopt", "getrandom", "statx"]
+
+[security.perplexity_filter]
+enable_perplexity_filter = false
+perplexity_threshold = 18.0
+suffix_window_chars = 64
+min_prompt_chars = 32
+symbol_ratio_threshold = 0.2
+
+[security.outbound_leak_guard]
+enabled = true
+action = "redact"
+sensitivity = 0.7
+
+[security.url_access]
+block_private_ip = false
+allow_cidrs = []
+allow_domains = []
+allow_loopback = true
+require_first_visit_approval = false
+enforce_domain_allowlist = false
+domain_allowlist = []
+domain_blocklist = []
+approved_domains = []
+
+# -- Runtime ----------------------------------
+[runtime]
+kind = "native"
+
+[runtime.docker]
+image = "alpine:3.20"
+network = "none"
+memory_limit_mb = 512
+cpu_limit = 1.0
+read_only_rootfs = true
+mount_workspace = true
+allowed_workspace_roots = []
+
+[runtime.wasm]
+tools_dir = "tools/wasm"
+fuel_limit = 1000000
+memory_limit_mb = 64
+max_module_size_mb = 50
+allow_workspace_read = false
+allow_workspace_write = false
+allowed_hosts = []
+
+[runtime.wasm.security]
+require_workspace_relative_tools_dir = true
+reject_symlink_modules = true
+reject_symlink_tools_dir = true
+strict_host_validation = true
+capability_escalation_mode = "deny"
+module_hash_policy = "warn"
+
+[runtime.wasm.security.module_sha256]
+
+# -- Research ---------------------------------
+[research]
+enabled = false
+trigger = "never"
+keywords = ["find", "search", "check", "investigate", "look", "research"]
+min_message_length = 50
+max_iterations = 5
+show_progress = true
+system_prompt_prefix = ""
+
+# -- Reliability ------------------------------
+[reliability]
+provider_retries = 2
+provider_backoff_ms = 500
+fallback_providers = []
+api_keys = []
+channel_initial_backoff_secs = 2
+channel_max_backoff_secs = 60
+scheduler_poll_secs = 15
+scheduler_retries = 2
+
+[reliability.model_fallbacks]
+
+# -- Scheduler --------------------------------
+[scheduler]
+enabled = true
+max_tasks = 64
+max_concurrent = 4
+
+# -- Agent ------------------------------------
+[agent]
+compact_context = true
+max_tool_iterations = 1000
+max_history_messages = 100
+parallel_tools = true
+tool_dispatcher = "auto"
+loop_detection_no_progress_threshold = 20
+loop_detection_ping_pong_cycles = 20
+loop_detection_failure_streak = 20
+safety_heartbeat_interval = 5
+safety_heartbeat_turn_interval = 10
+
+[agent.session]
+backend = "none"
+strategy = "per-sender"
+ttl_seconds = 3600
+max_messages = 50
+
+[agent.teams]
+enabled = true
+auto_activate = true
+max_agents = 32
+strategy = "adaptive"
+load_window_secs = 120
+inflight_penalty = 8
+recent_selection_penalty = 2
+recent_failure_penalty = 12
+
+[agent.subagents]
+enabled = true
+auto_activate = true
+max_concurrent = 10
+strategy = "adaptive"
+load_window_secs = 180
+inflight_penalty = 10
+recent_selection_penalty = 3
+recent_failure_penalty = 16
+queue_wait_ms = 15000
+queue_poll_ms = 200
+
+# -- Skills -----------------------------------
+[skills]
+open_skills_enabled = true
+trusted_skill_roots = [
+    "~/.zeroclaw/workspace/skills",
+    "~/.zeroclaw/.agents/skills",
+]
+allow_scripts = true
+prompt_injection_mode = "full"
+
+# -- Model Routes -----------------------------
+[[model_routes]]
+hint = "reasoning"
+provider = "custom:http://127.0.0.1:8317/v1"
+model = "gpt-5.2-codex"
+max_tokens = 16384
+
+[[model_routes]]
+hint = "thinking"
+provider = "custom:http://127.0.0.1:8317/v1"
+model = "gpt-5.2-codex"
+max_tokens = 16384
+
+[[model_routes]]
+hint = "code"
+provider = "custom:http://127.0.0.1:8317/v1"
+model = "gpt-5.2-codex"
+max_tokens = 16384
+
+[[model_routes]]
+hint = "fast"
+provider = "custom:http://127.0.0.1:8317/v1"
+model = "gpt-5.2-codex"
+max_tokens = 16384
+
+# -- Query Classification ---------------------
+[query_classification]
+enabled = true
+rules = []
+
+# -- Heartbeat --------------------------------
+[heartbeat]
+enabled = true
+interval_minutes = 1
+
+# -- Cron -------------------------------------
+[cron]
+enabled = true
+max_run_history = 50
+
+# -- Goal Loop --------------------------------
+[goal_loop]
+enabled = true
+interval_minutes = 10
+step_timeout_secs = 120
+max_steps_per_cycle = 3
+
+# -- Channels ---------------------------------
+[channels_config]
+cli = true
+message_timeout_secs = 120
+
+[channels_config.telegram]
+bot_token = "__TELEGRAM_BOT_TOKEN__"
+allowed_users = ["__TELEGRAM_USER_ID__"]
+stream_mode = "partial"
+draft_update_interval_ms = 1000
+interrupt_on_new_message = true
+mention_only = false
+progress_mode = "compact"
+ack_enabled = true
+
+[channels_config.ack_reaction]
+
+# -- Memory -----------------------------------
+[memory]
+backend = "sqlite"
+auto_save = true
+hygiene_enabled = true
+archive_after_days = 7
+purge_after_days = 30
+conversation_retention_days = 30
+embedding_provider = "none"
+embedding_model = "text-embedding-3-small"
+embedding_dimensions = 1536
+vector_weight = 0.7
+keyword_weight = 0.3
+min_relevance_score = 0.4
+embedding_cache_size = 10000
+chunk_max_tokens = 512
+response_cache_enabled = true
+response_cache_ttl_minutes = 5
+response_cache_max_entries = 5000
+snapshot_enabled = false
+snapshot_on_hygiene = false
+auto_hydrate = true
+sqlite_journal_mode = "wal"
+
+[memory.qdrant]
+collection = "zeroclaw_memories"
+
+[storage.provider.config]
+provider = ""
+schema = "public"
+table = "memories"
+tls = false
+
+# -- Tunnel -----------------------------------
+[tunnel]
+provider = "none"
+
+# -- Gateway ----------------------------------
+[gateway]
+port = 3080
+host = "0.0.0.0"
+require_pairing = true
+allow_public_bind = true
+paired_tokens = []
+pair_rate_limit_per_minute = 10
+webhook_rate_limit_per_minute = 60
+trust_forwarded_headers = false
+rate_limit_max_keys = 10000
+idempotency_ttl_secs = 300
+idempotency_max_keys = 10000
+
+[gateway.node_control]
+enabled = true
+allowed_node_ids = []
+
+[composio]
+enabled = true
+entity_id = "default"
+
+[secrets]
+encrypt = true
+
+# -- Browser (disabled on router) -------------
+[browser]
+enabled = false
+allowed_domains = []
+backend = "agent_browser"
+native_headless = true
+native_webdriver_url = "http://127.0.0.1:9515"
+
+[browser.computer_use]
+endpoint = "http://127.0.0.1:8787/v1/actions"
+timeout_ms = 15000
+allow_remote_endpoint = false
+window_allowlist = []
+
+# -- HTTP Request -----------------------------
+[http_request]
+enabled = true
+allowed_domains = ["*"]
+max_response_size = 1000000
+timeout_secs = 30
+user_agent = "Mozilla/5.0 (Linux; OpenWrt) ZeroClaw/0.1.8"
+
+[http_request.credential_profiles]
+
+# -- Multimodal -------------------------------
+[multimodal]
+max_images = 4
+max_image_size_mb = 5
+allow_remote_fetch = false
+
+# -- Web Fetch --------------------------------
+[web_fetch]
+enabled = true
+provider = "fast_html2md"
+allowed_domains = ["*"]
+blocked_domains = []
+max_response_size = 500000
+timeout_secs = 30
+user_agent = "Mozilla/5.0 (Linux; OpenWrt) ZeroClaw/0.1.8"
+
+# -- Web Search -------------------------------
+[web_search]
+enabled = true
+provider = "duckduckgo"
+fallback_providers = []
+retries_per_provider = 0
+retry_backoff_ms = 250
+domain_filter = []
+language_filter = []
+max_results = 5
+timeout_secs = 15
+user_agent = "Mozilla/5.0 (Linux; OpenWrt) ZeroClaw/0.1.8"
+
+# -- Proxy ------------------------------------
+[proxy]
+enabled = false
+no_proxy = []
+scope = "zeroclaw"
+services = []
+
+# -- Identity ---------------------------------
+[identity]
+format = "openclaw"
+extra_files = []
+
+# -- Cost -------------------------------------
+[cost]
+enabled = true
+daily_limit_usd = 10.0
+monthly_limit_usd = 100.0
+warn_at_percent = 80
+allow_override = false
+
+[cost.prices]
+
+[cost.enforcement]
+mode = "warn"
+route_down_model = "hint:fast"
+reserve_percent = 10
+
+# -- Economic ---------------------------------
+[economic]
+enabled = true
+initial_balance = 1000.0
+min_evaluation_threshold = 0.6
+
+[economic.token_pricing]
+input_price_per_million = 3.0
+output_price_per_million = 15.0
+
+# -- Peripherals ------------------------------
+[peripherals]
+enabled = true
+boards = []
+
+# -- Agents -----------------------------------
+[agents.system-monitor]
+provider = "custom:http://127.0.0.1:8317/v1"
+model = "gpt-5.2-codex"
+system_prompt = """
+Bạn là agent giám sát hệ thống router OpenWrt MT7986.
+
+Nhiệm vụ: Thu thập và báo cáo trạng thái hệ thống.
+
+Các lệnh cần dùng (shell ash, KHÔNG phải bash):
+- CPU/RAM: top -b -n1 | head -5
+- Memory: free -m
+- Disk: df -h /overlay
+- Uptime: uptime
+- Load: cat /proc/loadavg
+- Temperature: cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null
+- Processes: ps w | wc -l
+
+Trả về JSON compact:
+{cpu_percent, ram_used_mb, ram_total_mb, disk_used_pct, uptime, load_1m, load_5m, temp_celsius, process_count}
+
+Luôn trả lời tiếng Việt. Không phân tích, chỉ thu thập dữ liệu."""
+enabled = true
+capabilities = ["system", "monitor", "cpu", "ram", "disk", "health", "giám sát", "hệ thống"]
+priority = 10
+max_depth = 3
+agentic = true
+allowed_tools = ["shell"]
+max_iterations = 5
+
+[agents.log-analyzer]
+provider = "custom:http://127.0.0.1:8317/v1"
+model = "gpt-5.2-codex"
+system_prompt = '''
+Bạn là agent phân tích log trên router OpenWrt.
+
+Nhiệm vụ: Đọc, lọc, phân tích log hệ thống.
+
+Các lệnh:
+- System log: logread | tail -50
+- Kernel log: dmesg | tail -30
+- Filter by service: logread | grep <service>
+- Filter by level: logread | grep -i 'error\|warn\|crit'
+- ZeroClaw log: logread | grep zeroclaw | tail -30
+- Cliproxy log: logread | grep cli-proxy | tail -30
+- Auth/login: logread | grep -i 'auth\|login\|ssh'
+- Time range: logread | grep "Mar 12 03:"
+
+Phân tích:
+1. Tìm errors/warnings
+2. Phát hiện patterns bất thường
+3. Đề xuất fix nếu có vấn đề
+
+Trả lời tiếng Việt, ngắn gọn, có cấu trúc.'''
+enabled = true
+capabilities = ["log", "analyze", "error", "debug", "nhật ký", "lỗi", "phân tích"]
+priority = 5
+max_depth = 3
+agentic = true
+allowed_tools = ["shell"]
+max_iterations = 8
+
+[agents.researcher]
+provider = "custom:http://127.0.0.1:8317/v1"
+model = "gpt-5.2-codex"
+system_prompt = """
+Bạn là agent nghiên cứu thông tin từ internet.
+
+Nhiệm vụ: Tìm kiếm, tổng hợp thông tin từ web.
+
+Công cụ:
+- web_search_tool: Tìm kiếm DuckDuckGo
+- web_fetch: Đọc nội dung trang web
+- http_request: Gọi API
+
+Quy tắc:
+1. Tìm kiếm đa nguồn, cross-check thông tin
+2. Trích dẫn nguồn
+3. Tổng hợp ngắn gọn, có cấu trúc
+4. Phân biệt fact vs opinion
+
+Luôn trả lời tiếng Việt."""
+enabled = true
+capabilities = ["research", "search", "web", "tìm kiếm", "nghiên cứu", "tin tức", "news"]
+priority = 5
+max_depth = 5
+agentic = true
+allowed_tools = ["web_search_tool", "web_fetch", "http_request", "shell"]
+max_iterations = 10
+
+[agents.network-diag]
+provider = "custom:http://127.0.0.1:8317/v1"
+model = "gpt-5.2-codex"
+system_prompt = """
+Bạn là agent chẩn đoán mạng trên router OpenWrt.
+
+Nhiệm vụ: Kiểm tra kết nối mạng, DNS, WiFi, clients.
+
+Các lệnh hữu ích:
+- Ping: ping -c3 8.8.8.8
+- DNS: nslookup google.com
+- WiFi clients: iwinfo | grep -A20 ESSID
+- Connected devices: cat /tmp/dhcp.leases
+- Network interfaces: ip addr show
+- Routes: ip route show
+- Firewall: iptables -L -n | head -30
+- Bandwidth: cat /proc/net/dev
+- Port check: netstat -tlnp
+
+Luôn trả lời tiếng Việt. Đưa ra chẩn đoán ngắn gọn kèm đề xuất fix nếu có vấn đề."""
+enabled = true
+capabilities = ["network", "ping", "dns", "wifi", "diagnose", "mạng", "kết nối", "internet"]
+priority = 10
+max_depth = 5
+agentic = true
+allowed_tools = ["shell", "web_fetch"]
+max_iterations = 8
+
+[agents.service-manager]
+provider = "custom:http://127.0.0.1:8317/v1"
+model = "gpt-5.2-codex"
+system_prompt = """
+Bạn là agent quản lý services trên router OpenWrt.
+
+Nhiệm vụ: Kiểm tra, khởi động, dừng, restart các services.
+
+Các lệnh:
+- List services: ls /etc/init.d/
+- Status: /etc/init.d/<name> status
+- Start/Stop/Restart: /etc/init.d/<name> start|stop|restart
+- Enable/Disable auto-start: /etc/init.d/<name> enable|disable
+- Check auto-start: ls /etc/rc.d/ | grep <name>
+- Process list: ps w | grep <name>
+- Logs: logread | grep <name> | tail -20
+
+Services quan trọng trên router:
+- zeroclaw: AI agent (port 3080)
+- cliproxyapi: LLM proxy (port 8317)
+- AdGuard Home: DNS filter (port 3000)
+- nginx: web server (port 80/443)
+- dnsmasq: DHCP/DNS
+
+Luôn trả lời tiếng Việt. Cẩn thận khi stop/restart -- hỏi lại nếu là service critical."""
+enabled = true
+capabilities = ["service", "restart", "stop", "start", "dịch vụ", "quản lý"]
+priority = 10
+max_depth = 3
+agentic = true
+allowed_tools = ["shell"]
+max_iterations = 6
+
+[agents.self-admin]
+provider = "custom:http://127.0.0.1:8317/v1"
+model = "gpt-5.2-codex"
+system_prompt = '''Bạn là agent quản trị ZeroClaw trên router OpenWrt.
+
+Nhiệm vụ: Quản lý config, users, channels, services của ZeroClaw.
+
+## Config
+- File: /root/.zeroclaw/config.toml (TOML format)
+- Đọc: cat /root/.zeroclaw/config.toml
+- Sửa: dùng sed -i hoặc ghi file mới
+- SAU KHI SỬA CONFIG LUÔN RESTART: /etc/init.d/zeroclaw stop; /etc/init.d/zeroclaw start
+
+## Telegram Users
+- allowed_users nằm trong [channels_config.telegram]
+- Thêm user: sửa allowed_users array trong config.toml, restart
+- Xem user bị reject: logread | grep "unauthorized user" | tail -10
+- Format: allowed_users = ["id1", "id2"]
+
+## Pairing (Web UI)
+- Xóa paired_tokens = [] trong config, restart -> lấy code từ log
+- Code: logread | grep "Pairing-Code" | tail -1
+- Không có lệnh "zeroclaw pair" trên v0.1.8
+
+## Workspace Files
+- /root/.zeroclaw/workspace/USER.md -- thông tin user
+- /root/.zeroclaw/workspace/MEMORY.md -- long-term memory
+- /root/.zeroclaw/workspace/IDENTITY.md -- identity
+- /root/.zeroclaw/workspace/TOOLS.md -- env notes
+- /root/.zeroclaw/workspace/SOUL.md -- behavior rules
+
+## Channels
+- zeroclaw channel list -- xem channels
+- zeroclaw channel bind-telegram <id> -- bind telegram user
+- Config reload tự động khi sửa file, nhưng một số thay đổi cần restart
+
+## Useful Commands
+- zeroclaw status -- xem trạng thái
+- zeroclaw doctor -- health check
+- zeroclaw memory list -- xem memories
+- zeroclaw config encrypt -- encrypt credentials
+- /etc/init.d/zeroclaw stop; /etc/init.d/zeroclaw start -- restart
+
+## QUAN TRỌNG
+- Shell là ash (BusyBox), KHÔNG PHẢI bash
+- Sau khi sửa config PHẢI restart service
+- Không dùng [[ ]], dùng [ ]
+- Backup config trước khi sửa lớn: cp config.toml config.toml.bak
+
+Luôn trả lời tiếng Việt.'''
+enabled = true
+capabilities = ["config", "admin", "user", "telegram", "pair", "quản trị", "cấu hình", "thêm user", "bind", "restart", "workspace"]
+priority = 15
+max_depth = 5
+agentic = true
+allowed_tools = ["shell", "file_read", "file_write"]
+max_iterations = 10
+
+[agents.wifi-ops]
+provider = "custom:http://127.0.0.1:8317/v1"
+model = "gpt-5.2-codex"
+system_prompt = """
+Bạn là agent quản lý WiFi trên router OpenWrt.
+
+Nhiệm vụ: Chẩn đoán, cấu hình, tối ưu WiFi.
+
+Các lệnh:
+- iwinfo: Xem tất cả WiFi interfaces
+- iwinfo ra0 info: Chi tiết 2.4GHz
+- iwinfo rax0 info: Chi tiết 5GHz
+- iwinfo ra0 assoclist: Clients trên 2.4GHz
+- iwinfo rax0 assoclist: Clients trên 5GHz
+- iwinfo ra0 scan: Scan WiFi 2.4GHz
+- uci show wireless: Xem cấu hình WiFi
+- wifi reload: Reload WiFi config
+
+Luôn trả lời tiếng Việt."""
+enabled = true
+capabilities = ["wifi", "wireless", "signal", "channel", "ssid", "sóng", "kênh"]
+priority = 9
+max_depth = 3
+agentic = true
+allowed_tools = ["shell"]
+max_iterations = 8
+
+[agents.connected-devices]
+provider = "custom:http://127.0.0.1:8317/v1"
+model = "gpt-5.2-codex"
+system_prompt = """
+Bạn là agent liệt kê thiết bị đang kết nối router.
+
+Nhiệm vụ: Xem danh sách thiết bị, IP, MAC, hostname.
+
+Các lệnh:
+- cat /tmp/dhcp.leases: DHCP leases (IP, MAC, hostname)
+- arp -a: ARP table
+- iwinfo ra0 assoclist: WiFi 2.4GHz clients
+- iwinfo rax0 assoclist: WiFi 5GHz clients
+- cat /proc/net/arp: Kernel ARP
+
+Output: Bảng gồm IP, MAC, Hostname, Interface (LAN/WiFi 2.4/WiFi 5G)
+
+Luôn trả lời tiếng Việt."""
+enabled = true
+capabilities = ["devices", "clients", "connected", "thiết bị", "kết nối", "danh sách"]
+priority = 8
+max_depth = 3
+agentic = true
+allowed_tools = ["shell"]
+max_iterations = 6
+
+# -- Coordination -----------------------------
+[coordination]
+enabled = true
+lead_agent = "delegate-lead"
+max_inbox_messages_per_agent = 256
+max_dead_letters = 256
+max_context_entries = 512
+max_seen_message_ids = 4096
+
+# -- Hooks ------------------------------------
+[hooks]
+enabled = true
+
+[hooks.builtin]
+boot_script = false
+command_logger = false
+session_memory = false
+
+# -- Plugins ----------------------------------
+[plugins]
+enabled = true
+allow = []
+deny = []
+load_paths = []
+
+[plugins.entries]
+
+# -- Hardware ---------------------------------
+[hardware]
+enabled = true
+transport = "None"
+baud_rate = 115200
+workspace_datasheets = false
+
+# -- Transcription ----------------------------
+[transcription]
+enabled = true
+api_url = "https://api.groq.com/openai/v1/audio/transcriptions"
+model = "whisper-large-v3-turbo"
+max_duration_secs = 120
+
+# -- Agents IPC -------------------------------
+[agents_ipc]
+enabled = true
+db_path = "~/.zeroclaw/agents.db"
+staleness_secs = 300
+
+# -- MCP (disabled on router) -----------------
+[mcp]
+enabled = true
+servers = []
+
+# -- WASM -------------------------------------
+[wasm]
+enabled = true
+memory_limit_mb = 64
+fuel_limit = 1000000000
