@@ -133,57 +133,41 @@ fi
 # -- Start services ----------------------------------
 step "Starting services"
 
-# Safety: force kill anything on our ports right before start
-debug "Pre-start port check..."
-if netstat -tlnp 2>/dev/null | grep -qE ':831[78] |:3080 '; then
-    warn "Ports still occupied before start, force killing..."
-    debug "  Port state: $(netstat -tlnp 2>/dev/null | grep -E ':831[78] |:3080 ')"
-    killall cli-proxy-api socat 2>/dev/null || true
-    if command -v fuser >/dev/null 2>&1; then
-        fuser -k 8318/tcp 2>/dev/null || true
-        fuser -k 8317/tcp 2>/dev/null || true
-    fi
-    sleep 2
-fi
+debug "Ensuring clean runtime state before service start..."
+prepare_fresh_service_start 10
+
+debug "Resetting procd service state before fresh start..."
+/etc/init.d/cliproxyapi stop 2>/dev/null || true
+/etc/init.d/zeroclaw stop 2>/dev/null || true
+delete_procd_service_state
 
 # === START CLIProxyAPI ===
 info "Starting CLIProxyAPI..."
 debug "Running: /etc/init.d/cliproxyapi start"
 /etc/init.d/cliproxyapi start 2>&1 | while read line; do debug "  cliproxyapi: $line"; done
 
-# Wait for port 8318 (max 15s)
-RETRIES=0
-while [ $RETRIES -lt 15 ]; do
-    if netstat -tlnp 2>/dev/null | grep -q ":8318 "; then
-        debug "Port 8318 (api) detected after ${RETRIES}s"
-        break
-    fi
-    if [ $RETRIES -gt 3 ] && ! ps w 2>/dev/null | grep -q '[c]li-proxy-api'; then
-        debug "cli-proxy-api process died, no point waiting for port"
-        break
-    fi
-    sleep 1
-    RETRIES=$((RETRIES + 1))
-done
+wait_for_port_with_process_guard 8318 cli-proxy-api 15 || true
 
 # === VERIFY ===
-API_UP=$(netstat -tlnp 2>/dev/null | grep -q ":8318 " && echo "1" || echo "0")
-SOCAT_UP=$(netstat -tlnp 2>/dev/null | grep -q ":8317 " && echo "1" || echo "0")
+API_UP=$(is_port_listening 8318 && echo "1" || echo "0")
+SOCAT_UP=$(is_port_listening 8317 && echo "1" || echo "0")
 
 if [ "$API_UP" = "1" ] && [ "$SOCAT_UP" = "1" ]; then
     info "CLIProxyAPI is running (socat:8317 -> api:8318)"
 elif [ "$API_UP" = "1" ] && [ "$SOCAT_UP" = "0" ]; then
     debug "API up but socat not running, starting socat..."
     socat TCP4-LISTEN:8317,fork,reuseaddr TCP6:[::1]:8318 &
-    sleep 1
-    if netstat -tlnp 2>/dev/null | grep -q ":8317 "; then
+    if wait_for_port_listening 8317 5; then
         info "CLIProxyAPI is running (socat:8317 -> api:8318)"
     else
         warn "socat bridge failed to start"
     fi
 else
     warn "CLIProxyAPI backend (port 8318) did NOT start!"
-    debug "Logread: $(logread 2>/dev/null | grep -i 'cli-proxy' | tail -5)"
+    show_port_snapshot 8317 8318
+    PIDS=$(process_pids cli-proxy-api)
+    [ -n "$PIDS" ] && debug "cli-proxy-api pid(s): $PIDS" || debug "cli-proxy-api pid(s): <none>"
+    logread 2>/dev/null | grep -i 'cli-proxy' | tail -5 | while IFS= read -r line; do debug "logread: $line"; done
     error "Check: logread | grep cli-proxy"
 fi
 
@@ -192,11 +176,12 @@ debug "Running: /etc/init.d/zeroclaw start"
 /etc/init.d/zeroclaw start 2>&1 | while read line; do debug "  zeroclaw: $line"; done
 sleep 3
 
-if ps w | grep -q "[z]eroclaw"; then
+if is_process_running zeroclaw; then
     info "ZeroClaw is running "
 else
     warn "ZeroClaw may not have started. Check: logread | grep zeroclaw"
-    debug "Processes: $(ps w | grep zeroclaw | grep -v grep)"
+    PIDS=$(process_pids zeroclaw)
+    [ -n "$PIDS" ] && debug "zeroclaw pid(s): $PIDS" || debug "zeroclaw pid(s): <none>"
 fi
 
 # -- Encrypt credentials ----------------------------

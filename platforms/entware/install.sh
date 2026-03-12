@@ -190,24 +190,10 @@ $ENTWARE_OPKG install socat 2>/dev/null || warn "socat install failed -- IPv4 ac
 info "Starting CLIProxyAPI..."
 /opt/etc/init.d/S98cliproxyapi start
 
-# Wait for port
-RETRIES=0
-while [ $RETRIES -lt 15 ]; do
-    if netstat -tlnp 2>/dev/null | grep -q ":8317 "; then
-        break
-    fi
-    # Fallback: check with ss if netstat not available
-    if command -v ss >/dev/null 2>&1 && ss -tlnp 2>/dev/null | grep -q ":8317 "; then
-        break
-    fi
-    sleep 1
-    RETRIES=$((RETRIES + 1))
-done
-
-if netstat -tlnp 2>/dev/null | grep -q ":8317 " || \
-   (command -v ss >/dev/null 2>&1 && ss -tlnp 2>/dev/null | grep -q ":8317 "); then
+if wait_for_port_listening 8317 15; then
     info "CLIProxyAPI is running (socat:8317 -> api:8318)"
 else
+    show_port_snapshot 8317 8318
     warn "CLIProxyAPI may not have started. Check: cat /opt/var/log/cliproxyapi.log"
 fi
 
@@ -215,9 +201,11 @@ info "Starting ZeroClaw..."
 /opt/etc/init.d/S99zeroclaw start
 sleep 3
 
-if ps w 2>/dev/null | grep -q "[z]eroclaw"; then
+if is_process_running zeroclaw; then
     info "ZeroClaw is running"
 else
+    PIDS=$(process_pids zeroclaw)
+    [ -n "$PIDS" ] && debug "zeroclaw pid(s): $PIDS" || debug "zeroclaw pid(s): <none>"
     warn "ZeroClaw may not have started. Check: cat /opt/var/log/zeroclaw.log"
 fi
 

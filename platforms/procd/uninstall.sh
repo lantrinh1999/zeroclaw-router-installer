@@ -94,7 +94,7 @@ printf "${GREEN} Gỡ cài đặt hoàn tất!${NC}\n"
 echo "======================================================="
 echo ""
 
-REMAINING=$(ps w | grep -c "[z]eroclaw\|[c]li-proxy-api")
+REMAINING=$(( $(process_count zeroclaw) + $(process_count cli-proxy-api) ))
 if [ "$REMAINING" -gt 0 ]; then
     warn "Còn $REMAINING process đang chạy. Reboot nếu cần."
 else
