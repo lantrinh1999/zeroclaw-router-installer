@@ -111,49 +111,55 @@ confirm_strict() {
 detect_arch() {
     ARCH=$(uname -m)
     case "$ARCH" in
-        aarch64)        BIN_ARCH="aarch64" ;;
+        aarch64|arm64)  BIN_ARCH="aarch64" ;;
         mips|mipsel)    BIN_ARCH="mips32r2" ;;
         *)              BIN_ARCH="unknown" ;;
     esac
     debug "detect_arch: ARCH=$ARCH, BIN_ARCH=$BIN_ARCH"
 }
 
+read_release_value() {
+    _FILE="$1"
+    _KEY="$2"
+    sed -n "s/^${_KEY}=//p" "$_FILE" 2>/dev/null | head -n 1 | sed 's/^"//; s/"$//'
+}
+
+detect_pid1() {
+    PID1_COMM=$(cat /proc/1/comm 2>/dev/null | tr -d '\n')
+    PID1_EXE=$(readlink /proc/1/exe 2>/dev/null)
+    [ -z "$PID1_COMM" ] && PID1_COMM="unknown"
+    [ -z "$PID1_EXE" ] && PID1_EXE="unknown"
+
+    RUNTIME_CONTEXT="host"
+    if [ -f /.dockerenv ] || grep -qa 'container=' /proc/1/environ 2>/dev/null; then
+        RUNTIME_CONTEXT="container"
+    fi
+
+    debug "detect_pid1: PID1_COMM=$PID1_COMM, PID1_EXE=$PID1_EXE, RUNTIME_CONTEXT=$RUNTIME_CONTEXT"
+}
+
 detect_os() {
-    # Structure-based detection: procd + /etc/init.d + /etc/config = OpenWrt-family
-    # Covers: OpenWrt, kWrt, ImmortalWrt, and any procd-based firmware
-    if pidof procd >/dev/null 2>&1 && [ -d /etc/init.d ] && [ -d /etc/config ]; then
+    if [ -f /etc/openwrt_release ] || [ -f /etc/kwrt_release ] || [ -x /sbin/procd ] || { [ -f /etc/rc.common ] && [ -d /etc/config ]; }; then
         OS_TYPE="openwrt"
-        # Try to get OS name from known release files
         if [ -f /etc/openwrt_release ]; then
             OS_NAME=$(grep DISTRIB_DESCRIPTION /etc/openwrt_release 2>/dev/null | cut -d"'" -f2)
         elif [ -f /etc/kwrt_release ]; then
             OS_NAME=$(grep DISTRIB_DESCRIPTION /etc/kwrt_release 2>/dev/null | cut -d"'" -f2)
         fi
-        # Fallback to os-release
-        [ -z "$OS_NAME" ] && OS_NAME=$(cat /etc/os-release 2>/dev/null | grep "^PRETTY_NAME=" | cut -d'"' -f2)
+        [ -z "$OS_NAME" ] && OS_NAME=$(read_release_value /etc/os-release PRETTY_NAME)
         [ -z "$OS_NAME" ] && OS_NAME="OpenWrt-based (custom)"
     elif [ -f /etc/buildroot-release ] || [ -d /usr/share/buildroot ]; then
         OS_TYPE="buildroot"
         OS_NAME="Buildroot Linux"
+    elif [ -f /init.rc ] || [ -f /system/build.prop ] || [ -d /system/etc/init ]; then
+        OS_TYPE="android"
+        OS_NAME="Android"
     else
         OS_TYPE="linux"
-        OS_NAME=$(cat /etc/os-release 2>/dev/null | grep "^PRETTY_NAME=" | cut -d'"' -f2)
+        OS_NAME=$(read_release_value /etc/os-release PRETTY_NAME)
         [ -z "$OS_NAME" ] && OS_NAME="Linux (unknown distro)"
     fi
     debug "detect_os: OS_TYPE=$OS_TYPE, OS_NAME=$OS_NAME"
-}
-
-detect_init() {
-    if pidof procd >/dev/null 2>&1; then
-        INIT_TYPE="procd"
-    elif [ -d /opt/etc/init.d ]; then
-        INIT_TYPE="sysv-entware"
-    elif [ -d /etc/init.d ]; then
-        INIT_TYPE="sysv"
-    else
-        INIT_TYPE="unknown"
-    fi
-    debug "detect_init: INIT_TYPE=$INIT_TYPE"
 }
 
 detect_entware() {
@@ -167,71 +173,255 @@ detect_entware() {
     debug "detect_entware: ENTWARE_INSTALLED=$ENTWARE_INSTALLED"
 }
 
+path_is_writable_or_creatable() {
+    _PATH="$1"
+    _TARGET="$1"
+
+    if [ -z "$_PATH" ]; then
+        return 1
+    fi
+
+    while [ ! -d "$_TARGET" ]; do
+        _NEXT=$(dirname "$_TARGET")
+        [ "$_NEXT" = "$_TARGET" ] && break
+        _TARGET="$_NEXT"
+    done
+
+    [ -d "$_TARGET" ] || return 1
+
+    _PROBE="$_TARGET/.zc-write-test-$$"
+    if : > "$_PROBE" 2>/dev/null; then
+        rm -f "$_PROBE" 2>/dev/null || true
+        return 0
+    fi
+
+    return 1
+}
+
+first_writable_path() {
+    for _PATH in "$@"; do
+        if path_is_writable_or_creatable "$_PATH"; then
+            printf '%s\n' "$_PATH"
+            return 0
+        fi
+    done
+    return 1
+}
+
+detect_init() {
+    INIT_TYPE="unknown"
+    SERVICE_BACKEND="manual"
+
+    if [ "$PID1_COMM" = "procd" ] || [ -x /sbin/procd ] || { [ -f /etc/rc.common ] && [ -d /etc/config ]; }; then
+        INIT_TYPE="procd"
+        SERVICE_BACKEND="procd"
+    elif { [ "$PID1_COMM" = "systemd" ] || [ -d /run/systemd/system ]; } && command -v systemctl >/dev/null 2>&1; then
+        INIT_TYPE="systemd"
+        SERVICE_BACKEND="systemd"
+    elif command -v rc-service >/dev/null 2>&1 || [ -d /run/openrc ]; then
+        INIT_TYPE="openrc"
+        SERVICE_BACKEND="openrc"
+    elif [ -d /opt/etc/init.d ]; then
+        INIT_TYPE="sysv-entware"
+        SERVICE_BACKEND="entware-sysv"
+    elif [ "$PID1_COMM" = "busybox" ]; then
+        INIT_TYPE="busybox-init"
+        SERVICE_BACKEND="sysv"
+    elif [ "$PID1_COMM" = "init" ] && { [ -f /init.rc ] || [ -d /system/etc/init ]; }; then
+        INIT_TYPE="android-init"
+        SERVICE_BACKEND="android-init"
+    elif [ "$PID1_COMM" = "init" ] || [ -d /etc/init.d ]; then
+        INIT_TYPE="sysv"
+        SERVICE_BACKEND="sysv"
+    fi
+
+    if [ "$RUNTIME_CONTEXT" = "container" ] && [ "$SERVICE_BACKEND" != "procd" ]; then
+        SERVICE_BACKEND="manual"
+    fi
+
+    debug "detect_init: INIT_TYPE=$INIT_TYPE, SERVICE_BACKEND=$SERVICE_BACKEND"
+}
+
+detect_install_layout() {
+    INSTALL_LAYOUT="unknown"
+    INSTALL_BIN_DIR=""
+    INSTALL_CLIPROXY_DIR=""
+
+    if [ "$SERVICE_BACKEND" = "procd" ]; then
+        INSTALL_LAYOUT="openwrt-root"
+        INSTALL_BIN_DIR="/usr/bin"
+        INSTALL_CLIPROXY_DIR="/opt/cliproxyapi"
+    elif [ "$SERVICE_BACKEND" = "entware-sysv" ]; then
+        INSTALL_LAYOUT="entware-opt"
+        INSTALL_BIN_DIR="/opt/bin"
+        INSTALL_CLIPROXY_DIR="/opt/cliproxyapi"
+    else
+        INSTALL_BIN_DIR=$(first_writable_path /opt/bin /usr/local/bin /usr/bin)
+        case "$INSTALL_BIN_DIR" in
+            /opt/bin)
+                INSTALL_LAYOUT="manual-opt"
+                INSTALL_CLIPROXY_DIR="/opt/cliproxyapi"
+                ;;
+            /usr/local/bin)
+                INSTALL_LAYOUT="linux-root"
+                INSTALL_CLIPROXY_DIR="/usr/local/lib/zeroclaw/cliproxyapi"
+                ;;
+            /usr/bin)
+                INSTALL_LAYOUT="manual-root"
+                INSTALL_CLIPROXY_DIR="/usr/lib/zeroclaw/cliproxyapi"
+                ;;
+        esac
+    fi
+
+    debug "detect_install_layout: INSTALL_LAYOUT=$INSTALL_LAYOUT, INSTALL_BIN_DIR=$INSTALL_BIN_DIR, INSTALL_CLIPROXY_DIR=$INSTALL_CLIPROXY_DIR"
+}
+
+detect_execution_mode() {
+    PLATFORM="unknown"
+    EXEC_MODE="unsupported"
+
+    if [ "$BIN_ARCH" = "unknown" ]; then
+        debug "detect_execution_mode: unsupported binary architecture"
+        return 0
+    fi
+
+    if [ "$SERVICE_BACKEND" = "procd" ]; then
+        PLATFORM="procd"
+        EXEC_MODE="managed-service"
+    elif [ "$SERVICE_BACKEND" = "entware-sysv" ]; then
+        PLATFORM="entware"
+        EXEC_MODE="managed-service"
+    elif [ "$INSTALL_LAYOUT" != "unknown" ]; then
+        PLATFORM="manual"
+        EXEC_MODE="manual-run"
+    fi
+
+    debug "detect_execution_mode: PLATFORM=$PLATFORM, EXEC_MODE=$EXEC_MODE"
+}
+
+detect_platform_failures() {
+    PLATFORM_FAILURES=""
+
+    if [ "$BIN_ARCH" = "unknown" ]; then
+        PLATFORM_FAILURES="${PLATFORM_FAILURES}FAIL arch=$ARCH (unsupported)
+"
+    fi
+
+    if [ "$RAM_MB" -lt 256 ]; then
+        PLATFORM_FAILURES="${PLATFORM_FAILURES}FAIL ram=${RAM_MB}MB (minimum 256MB)
+"
+    fi
+
+    if [ "$DISK_FREE_MB" -lt 100 ]; then
+        PLATFORM_FAILURES="${PLATFORM_FAILURES}FAIL disk=${DISK_FREE_MB}MB free (minimum 100MB)
+"
+    fi
+
+    if [ "$EXEC_MODE" = "unsupported" ] || [ "$INSTALL_LAYOUT" = "unknown" ]; then
+        PLATFORM_FAILURES="${PLATFORM_FAILURES}FAIL strategy=unsupported
+"
+    fi
+}
+
+platform_supported() {
+    detect_platform_failures
+    [ -z "$PLATFORM_FAILURES" ]
+}
+
+print_platform_exports() {
+    detect_platform_failures
+
+    echo "ARCH=$ARCH"
+    echo "BIN_ARCH=$BIN_ARCH"
+    echo "OS_TYPE=$OS_TYPE"
+    echo "OS_NAME=$OS_NAME"
+    echo "KERNEL=$KERNEL_VER"
+    echo "PID1_COMM=$PID1_COMM"
+    echo "PID1_EXE=$PID1_EXE"
+    echo "RUNTIME_CONTEXT=$RUNTIME_CONTEXT"
+    echo "INIT_TYPE=$INIT_TYPE"
+    echo "SERVICE_BACKEND=$SERVICE_BACKEND"
+    echo "INSTALL_LAYOUT=$INSTALL_LAYOUT"
+    echo "INSTALL_BIN_DIR=$INSTALL_BIN_DIR"
+    echo "INSTALL_CLIPROXY_DIR=$INSTALL_CLIPROXY_DIR"
+    echo "EXEC_MODE=$EXEC_MODE"
+    echo "ENTWARE=$([ "$ENTWARE_INSTALLED" = "1" ] && echo "yes" || echo "no")"
+    echo "PLATFORM=$PLATFORM"
+    echo "RAM=${RAM_MB}MB"
+    echo "DISK=${DISK_FREE_MB}MB"
+
+    if [ -n "$PLATFORM_FAILURES" ]; then
+        printf '%s' "$PLATFORM_FAILURES"
+        echo "RESULT=FAIL"
+    else
+        echo "RESULT=OK"
+    fi
+}
+
 detect_platform() {
     debug "Running platform detection..."
     detect_arch
+    detect_pid1
     detect_os
-    detect_init
     detect_entware
+    detect_init
+    detect_install_layout
+    detect_execution_mode
 
-    # Determine platform type
-    if [ "$OS_TYPE" = "openwrt" ]; then
-        PLATFORM="procd"
-    elif [ "$ENTWARE_INSTALLED" = "1" ] || [ "$OS_TYPE" = "buildroot" ] || [ "$OS_TYPE" = "linux" ]; then
-        PLATFORM="entware"
-    else
-        PLATFORM="unknown"
-    fi
-
-    # Get additional system info
     KERNEL_VER=$(uname -r)
     RAM_KB=$(grep MemTotal /proc/meminfo 2>/dev/null | awk '{print $2}')
     RAM_MB=$((RAM_KB / 1024))
 
-    # Disk space (try /overlay first for OpenWrt, then /opt, then /)
-    if [ "$PLATFORM" = "procd" ]; then
-        DISK_FREE_KB=$(df /overlay 2>/dev/null | tail -1 | awk '{print $4}')
-    elif [ -d /opt ]; then
-        DISK_FREE_KB=$(df /opt 2>/dev/null | tail -1 | awk '{print $4}')
-    fi
+    DISK_PROBE="/"
+    case "$INSTALL_LAYOUT" in
+        openwrt-root)
+            [ -d /overlay ] && DISK_PROBE="/overlay"
+            ;;
+        entware-opt|manual-opt)
+            DISK_PROBE="/opt"
+            ;;
+        linux-root|manual-root)
+            DISK_PROBE="$INSTALL_BIN_DIR"
+            ;;
+    esac
+    DISK_FREE_KB=$(df "$DISK_PROBE" 2>/dev/null | tail -1 | awk '{print $4}')
     [ -z "$DISK_FREE_KB" ] && DISK_FREE_KB=$(df / 2>/dev/null | tail -1 | awk '{print $4}')
     DISK_FREE_MB=$((DISK_FREE_KB / 1024))
 
-    debug "Platform detection complete: PLATFORM=$PLATFORM, RAM=${RAM_MB}MB, DISK=${DISK_FREE_MB}MB"
+    debug "Platform detection complete: PLATFORM=$PLATFORM, INIT=$INIT_TYPE, BACKEND=$SERVICE_BACKEND, LAYOUT=$INSTALL_LAYOUT, MODE=$EXEC_MODE, RAM=${RAM_MB}MB, DISK=${DISK_FREE_MB}MB"
 }
 
 show_platform_info() {
     echo ""
     echo "--- Platform Detection ---"
-    echo "  Architecture:  $ARCH ($BIN_ARCH)"
-    echo "  OS:            $OS_NAME"
-    echo "  OS Type:       $OS_TYPE"
-    echo "  Kernel:        $KERNEL_VER"
-    echo "  Init System:   $INIT_TYPE"
-    echo "  Entware:       $([ "$ENTWARE_INSTALLED" = "1" ] && echo "Installed" || echo "Not installed")"
-    echo "  RAM:           ${RAM_MB}MB"
-    echo "  Disk Free:     ${DISK_FREE_MB}MB"
-    echo "  Platform:      $PLATFORM"
+    echo "  Architecture:    $ARCH ($BIN_ARCH)"
+    echo "  OS:              $OS_NAME"
+    echo "  OS Type:         $OS_TYPE"
+    echo "  Kernel:          $KERNEL_VER"
+    echo "  PID 1:           $PID1_COMM"
+    echo "  Init System:     $INIT_TYPE"
+    echo "  Backend:         $SERVICE_BACKEND"
+    echo "  Install Layout:  $INSTALL_LAYOUT"
+    echo "  Execution Mode:  $EXEC_MODE"
+    echo "  Entware:         $([ "$ENTWARE_INSTALLED" = "1" ] && echo "Installed" || echo "Not installed")"
+    echo "  RAM:             ${RAM_MB}MB"
+    echo "  Disk Free:       ${DISK_FREE_MB}MB"
+    echo "  Platform:        $PLATFORM"
     echo ""
 
-    # Also log to file
-    debug "PLATFORM_INFO: arch=$ARCH/$BIN_ARCH os=$OS_NAME/$OS_TYPE kernel=$KERNEL_VER init=$INIT_TYPE ram=${RAM_MB}MB disk=${DISK_FREE_MB}MB platform=$PLATFORM"
+    debug "PLATFORM_INFO: arch=$ARCH/$BIN_ARCH os=$OS_NAME/$OS_TYPE pid1=$PID1_COMM init=$INIT_TYPE backend=$SERVICE_BACKEND layout=$INSTALL_LAYOUT mode=$EXEC_MODE ram=${RAM_MB}MB disk=${DISK_FREE_MB}MB platform=$PLATFORM"
 }
 
 confirm_platform() {
     show_platform_info
 
-    if [ "$PLATFORM" = "unknown" ]; then
-        error "Cannot determine platform. Arch=$ARCH, OS=$OS_TYPE"
+    if ! platform_supported; then
+        printf '%s' "$PLATFORM_FAILURES" | while IFS= read -r _LINE; do
+            [ -n "$_LINE" ] && error "$_LINE"
+        done
         return 1
     fi
 
-    if [ "$BIN_ARCH" = "unknown" ]; then
-        error "Unsupported architecture: $ARCH"
-        return 1
-    fi
-
-    # Skip interactive confirm when called from setup.sh (already confirmed locally)
     if [ "$SKIP_CONFIRM" = "1" ]; then
         info "Platform confirmed (via setup.sh)"
         return 0
@@ -284,6 +474,148 @@ check_binaries_exist() {
     ZC_SIZE=$(ls -la "$BIN_SRC_DIR/zeroclaw" | awk '{print $5}')
     CP_SIZE=$(ls -la "$BIN_SRC_DIR/cli-proxy-api" | awk '{print $5}')
     info "Binaries found: zeroclaw (${ZC_SIZE}B), cli-proxy-api (${CP_SIZE}B)"
+    return 0
+}
+
+install_binary_from_stage() {
+    # Usage: install_binary_from_stage /tmp/src/bin /target/bin "label"
+    _SRC="$1"
+    _DST="$2"
+    _LABEL="$3"
+
+    [ -z "$_LABEL" ] && _LABEL="$(basename "$_DST")"
+
+    if [ ! -f "$_SRC" ]; then
+        error "FATAL: Missing source binary for $_LABEL"
+        error "  Source: $_SRC"
+        return 1
+    fi
+
+    _DST_DIR=$(dirname "$_DST")
+    mkdir -p "$_DST_DIR" 2>/dev/null || true
+    rm -f "$_DST" 2>/dev/null || true
+
+    # Prefer move to avoid duplicate large binaries in /tmp staging.
+    if mv "$_SRC" "$_DST" 2>/dev/null; then
+        debug "  moved: $_SRC -> $_DST"
+        return 0
+    fi
+
+    # Fallback for cross-device or restricted mv implementations.
+    if cp "$_SRC" "$_DST" 2>/dev/null; then
+        debug "  copied (mv fallback): $_SRC -> $_DST"
+        rm -f "$_SRC" 2>/dev/null || true
+        return 0
+    fi
+
+    error "FATAL: Failed to install $_LABEL"
+    error "  Source: $_SRC"
+    error "  Destination: $_DST"
+    return 1
+}
+
+ensure_rc_common_compat() {
+    # Some procd-like firmware images may not ship /etc/rc.common.
+    # Install a minimal compatibility shim so /etc/init.d scripts still work.
+    if [ -f /etc/rc.common ]; then
+        return 0
+    fi
+
+    warn "/etc/rc.common not found. Installing compatibility shim..."
+
+    cat > /etc/rc.common <<'EOF'
+#!/bin/sh
+# rc.common compatibility shim (auto-generated by zeroclaw installer)
+
+INITSCRIPT="$1"
+ACTION="${2:-start}"
+SERVICE_NAME="$(basename "$INITSCRIPT" 2>/dev/null)"
+
+_RC_CMD=""
+_RC_PIDFILE=""
+
+procd_open_instance() {
+    _RC_CMD=""
+    _RC_PIDFILE=""
+}
+
+procd_set_param() {
+    _KEY="$1"
+    shift
+    case "$_KEY" in
+        command) _RC_CMD="$*" ;;
+        pidfile) _RC_PIDFILE="$1" ;;
+        *) : ;;
+    esac
+}
+
+procd_close_instance() {
+    [ -z "$_RC_CMD" ] && return 0
+    sh -c "$_RC_CMD" >/dev/null 2>&1 &
+    _RC_PID="$!"
+    [ -n "$_RC_PIDFILE" ] && echo "$_RC_PID" > "$_RC_PIDFILE"
+}
+
+run_start() {
+    if type start >/dev/null 2>&1; then
+        start
+    elif type start_service >/dev/null 2>&1; then
+        start_service
+    fi
+}
+
+run_stop() {
+    if type stop >/dev/null 2>&1; then
+        stop
+    elif type stop_service >/dev/null 2>&1; then
+        stop_service
+    fi
+}
+
+run_enable() {
+    mkdir -p /etc/rc.d 2>/dev/null || true
+    [ -n "$START" ] && ln -sf "$INITSCRIPT" "/etc/rc.d/S${START}${SERVICE_NAME}" 2>/dev/null || true
+    [ -n "$STOP" ] && ln -sf "$INITSCRIPT" "/etc/rc.d/K${STOP}${SERVICE_NAME}" 2>/dev/null || true
+}
+
+run_disable() {
+    rm -f "/etc/rc.d/"S??"${SERVICE_NAME}" "/etc/rc.d/"K??"${SERVICE_NAME}" 2>/dev/null || true
+}
+
+if [ -z "$INITSCRIPT" ] || [ ! -r "$INITSCRIPT" ]; then
+    echo "rc.common shim: missing init script path"
+    exit 1
+fi
+
+. "$INITSCRIPT"
+
+case "$ACTION" in
+    start) run_start ;;
+    stop) run_stop ;;
+    restart) run_stop; sleep 1; run_start ;;
+    enable) run_enable ;;
+    disable) run_disable ;;
+    status)
+        if type status >/dev/null 2>&1; then
+            status
+        else
+            echo "status: not implemented by $SERVICE_NAME"
+        fi
+        ;;
+    *)
+        echo "Usage: $INITSCRIPT {start|stop|restart|enable|disable|status}"
+        exit 1
+        ;;
+esac
+EOF
+
+    chmod +x /etc/rc.common 2>/dev/null || true
+    if [ ! -f /etc/rc.common ]; then
+        error "Failed to create /etc/rc.common compatibility shim"
+        return 1
+    fi
+
+    info "Installed /etc/rc.common compatibility shim"
     return 0
 }
 
@@ -401,10 +733,10 @@ test_telegram_message() {
     # Try wget first, fallback to curl
     if command -v wget >/dev/null 2>&1; then
         debug "Using wget for Telegram API call"
-        _TG_RESULT=$(wget -qO- --timeout=15 --post-data="chat_id=${_TG_USER}&text=${_TG_MSG}" "$_TG_URL" 2>&1) || {
+        _TG_RESULT=$(wget -qO- -T 15 -t 1 --post-data="chat_id=${_TG_USER}&text=${_TG_MSG}" "$_TG_URL" 2>&1) || {
             debug "wget failed, trying curl..."
             if command -v curl >/dev/null 2>&1; then
-                _TG_RESULT=$(curl -s --connect-timeout 10 --max-time 3 -X POST "$_TG_URL" -d "chat_id=${_TG_USER}&text=${_TG_MSG}" 2>&1)
+                _TG_RESULT=$(curl -s --connect-timeout 10 --max-time 15 -X POST "$_TG_URL" -d "chat_id=${_TG_USER}&text=${_TG_MSG}" 2>&1)
             else
                 error "wget failed and curl not available"
                 return 1
@@ -412,7 +744,7 @@ test_telegram_message() {
         }
     elif command -v curl >/dev/null 2>&1; then
         debug "Using curl for Telegram API call"
-        _TG_RESULT=$(curl -s --connect-timeout 10 --max-time 3 -X POST "$_TG_URL" -d "chat_id=${_TG_USER}&text=${_TG_MSG}" 2>&1)
+        _TG_RESULT=$(curl -s --connect-timeout 10 --max-time 15 -X POST "$_TG_URL" -d "chat_id=${_TG_USER}&text=${_TG_MSG}" 2>&1)
     else
         error "Neither wget nor curl available -- cannot test Telegram"
         return 1
@@ -496,11 +828,48 @@ inject_telegram_config() {
     debug "Telegram config injected into $CONFIG"
 }
 
+set_zeroclaw_provider_port() {
+    _PORT="$1"
+    _CONFIG="/root/.zeroclaw/config.toml"
+
+    [ -f "$_CONFIG" ] || return 1
+
+    sed -i "s|127.0.0.1:[0-9][0-9]*|127.0.0.1:${_PORT}|g" "$_CONFIG"
+    debug "ZeroClaw provider port set to $_PORT"
+}
+
+set_cliproxy_auth_dir() {
+    _CONFIG="$1"
+    _AUTH_DIR="$2"
+
+    [ -f "$_CONFIG" ] || return 1
+
+    sed -i "s|^auth-dir: \".*\"|auth-dir: \"${_AUTH_DIR}\"|g" "$_CONFIG"
+    debug "CLIProxy auth-dir updated to $_AUTH_DIR"
+}
+
 # =======================================================
 # Service Control
 # =======================================================
 
 SERVICE_PORTS="8317 8318 3080"
+
+manual_service_script_candidates() {
+    printf '%s\n' \
+        /usr/local/bin/zeroclaw-service \
+        /usr/local/bin/cliproxyapi-service \
+        /opt/bin/zeroclaw-service \
+        /opt/bin/cliproxyapi-service \
+        /usr/bin/zeroclaw-service \
+        /usr/bin/cliproxyapi-service
+}
+
+stop_manual_services() {
+    manual_service_script_candidates | while IFS= read -r _SCRIPT; do
+        [ -x "$_SCRIPT" ] || continue
+        "$_SCRIPT" stop 2>/dev/null && debug "  stopped via $_SCRIPT" || true
+    done
+}
 
 socket_table() {
     if command -v netstat >/dev/null 2>&1; then
@@ -544,6 +913,28 @@ show_port_snapshot() {
     done
 }
 
+socket_table_all() {
+    if command -v ss >/dev/null 2>&1; then
+        ss -tanp 2>/dev/null || ss -tan 2>/dev/null
+        return 0
+    fi
+    if command -v netstat >/dev/null 2>&1; then
+        netstat -tanp 2>/dev/null || netstat -tan 2>/dev/null
+        return 0
+    fi
+    return 1
+}
+
+show_port_activity() {
+    for _PORT in "$@"; do
+        _LINES=$(socket_table_all | grep -E "[:.]${_PORT}[[:space:]]" || true)
+        [ -z "$_LINES" ] && continue
+        echo "$_LINES" | while IFS= read -r _LINE; do
+            debug "  port $_PORT activity: $_LINE"
+        done
+    done
+}
+
 wait_for_ports_free() {
     _TIMEOUT="$1"
     shift
@@ -578,13 +969,14 @@ wait_for_port_with_process_guard() {
     _PORT="$1"
     _PROC="$2"
     _TIMEOUT="${3:-15}"
+    _PROC_GUARD_AFTER=8
     _WAIT=0
     while [ "$_WAIT" -lt "$_TIMEOUT" ]; do
         if is_port_listening "$_PORT"; then
             debug "Port $_PORT detected after ${_WAIT}s"
             return 0
         fi
-        if [ "$_WAIT" -gt 3 ] && ! is_process_running "$_PROC"; then
+        if [ "$_WAIT" -ge "$_PROC_GUARD_AFTER" ] && ! is_process_running "$_PROC"; then
             debug "$_PROC process died, no point waiting for port $_PORT"
             return 1
         fi
@@ -595,7 +987,86 @@ wait_for_port_with_process_guard() {
 }
 
 process_pids() {
-    pidof "$1" 2>/dev/null || true
+    _PROC="$1"
+
+    if command -v pidof >/dev/null 2>&1; then
+        _PIDS=$(pidof "$_PROC" 2>/dev/null || true)
+        if [ -n "$_PIDS" ]; then
+            echo "$_PIDS"
+            return 0
+        fi
+    fi
+
+    if command -v pgrep >/dev/null 2>&1; then
+        _PIDS=$(pgrep -f "$_PROC" 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]]*$//')
+        [ -n "$_PIDS" ] && echo "$_PIDS"
+        return 0
+    fi
+
+    _PIDS=""
+    for _PID_DIR in /proc/[0-9]*; do
+        [ -r "$_PID_DIR/cmdline" ] || continue
+        _CMD=$(tr '\0' ' ' < "$_PID_DIR/cmdline" 2>/dev/null)
+        case "$_CMD" in
+            *"$_PROC"*) _PIDS="${_PIDS} ${_PID_DIR##*/}" ;;
+        esac
+    done
+    _PIDS=$(echo "$_PIDS" | tr ' ' '\n' | grep -E '^[0-9]+$' | sort -u | tr '\n' ' ' | sed 's/[[:space:]]*$//')
+    [ -n "$_PIDS" ] && echo "$_PIDS"
+}
+
+port_listener_pids() {
+    _PORT="$1"
+    _RAW=""
+
+    if command -v ss >/dev/null 2>&1; then
+        _RAW="$(
+            ss -tlnp 2>/dev/null \
+            | grep -E "[:.]${_PORT}[[:space:]]" \
+            | sed -n 's/.*pid=\([0-9][0-9]*\).*/\1/p'
+        )"
+    fi
+
+    _RAW="${_RAW}
+$(
+    socket_table \
+    | grep -E "[:.]${_PORT}[[:space:]]" \
+    | awk '{print $NF}' \
+    | sed -n 's#^\([0-9][0-9]*\)/.*#\1#p'
+)"
+
+    echo "$_RAW" | grep -E '^[0-9]+$' | sort -u | tr '\n' ' ' | sed 's/[[:space:]]*$//'
+}
+
+kill_processes_by_name() {
+    _PROC="$1"
+
+    if command -v killall >/dev/null 2>&1; then
+        killall "$_PROC" 2>/dev/null || true
+    fi
+
+    _PIDS=$(process_pids "$_PROC")
+    for _PID in $_PIDS; do
+        kill "$_PID" 2>/dev/null || true
+    done
+}
+
+kill_listeners_on_port() {
+    _PORT="$1"
+    _PIDS=$(port_listener_pids "$_PORT")
+    [ -z "$_PIDS" ] && return 0
+
+    debug "  Releasing port $_PORT (pid: $_PIDS)"
+    for _PID in $_PIDS; do
+        kill "$_PID" 2>/dev/null || true
+    done
+
+    sleep 1
+
+    _PIDS=$(port_listener_pids "$_PORT")
+    for _PID in $_PIDS; do
+        kill -9 "$_PID" 2>/dev/null || true
+    done
 }
 
 is_process_running() {
@@ -651,22 +1122,28 @@ delete_procd_service_state() {
     fi
 
     debug "Deleting services from procd state..."
-    ubus call service delete '{"name":"cliproxyapi"}' 2>/dev/null && debug "  procd: cliproxyapi deleted" || debug "  procd: cliproxyapi not tracked"
-    ubus call service delete '{"name":"zeroclaw"}' 2>/dev/null && debug "  procd: zeroclaw deleted" || debug "  procd: zeroclaw not tracked"
+    ubus call service delete '{"name":"cliproxyapi"}' >/dev/null 2>&1 && debug "  procd: cliproxyapi deleted" || debug "  procd: cliproxyapi not tracked"
+    ubus call service delete '{"name":"zeroclaw"}' >/dev/null 2>&1 && debug "  procd: zeroclaw deleted" || debug "  procd: zeroclaw not tracked"
 }
 
 force_release_service_runtime() {
     _TIMEOUT="${1:-15}"
 
     debug "Force killing remaining service processes..."
-    killall zeroclaw cli-proxy-api socat 2>/dev/null || true
-    rm -f /var/run/cliproxyapi.pid /var/run/zeroclaw.pid /opt/var/run/cliproxyapi.pid /opt/var/run/zeroclaw.pid 2>/dev/null
+    kill_processes_by_name zeroclaw
+    kill_processes_by_name cli-proxy-api
+    kill_processes_by_name socat
+    rm -f /var/run/cliproxyapi.pid /var/run/zeroclaw.pid /opt/var/run/cliproxyapi.pid /opt/var/run/zeroclaw.pid /opt/var/run/socat_bridge.pid 2>/dev/null
 
     if command -v fuser >/dev/null 2>&1; then
         for _PORT in $SERVICE_PORTS; do
             fuser -k "${_PORT}/tcp" 2>/dev/null && debug "  fuser killed process on $_PORT" || true
         done
     fi
+
+    for _PORT in $SERVICE_PORTS; do
+        kill_listeners_on_port "$_PORT"
+    done
 
     if wait_for_processes_exit "$_TIMEOUT" zeroclaw cli-proxy-api; then
         debug "Service processes are fully stopped"
@@ -704,6 +1181,7 @@ stop_existing_services() {
     /etc/init.d/cliproxyapi stop 2>/dev/null && debug "  cliproxyapi stopped via /etc/init.d" || debug "  cliproxyapi not running via /etc/init.d"
     /opt/etc/init.d/S99zeroclaw stop 2>/dev/null && debug "  zeroclaw stopped via /opt init.d" || true
     /opt/etc/init.d/S98cliproxyapi stop 2>/dev/null && debug "  cliproxyapi stopped via /opt init.d" || true
+    stop_manual_services
 
     # Prevent procd from respawning stale instances
     delete_procd_service_state
@@ -714,12 +1192,21 @@ stop_existing_services() {
 cleanup_existing_installation() {
     HAS_FILES=0
     [ -f /usr/bin/zeroclaw ] && HAS_FILES=1
+    [ -f /usr/local/bin/zeroclaw ] && HAS_FILES=1
     [ -f /opt/bin/zeroclaw ] && HAS_FILES=1
     [ -f /opt/cliproxyapi/cli-proxy-api ] && HAS_FILES=1
+    [ -f /usr/local/lib/zeroclaw/cliproxyapi/cli-proxy-api ] && HAS_FILES=1
+    [ -f /usr/lib/zeroclaw/cliproxyapi/cli-proxy-api ] && HAS_FILES=1
     [ -f /etc/init.d/zeroclaw ] && HAS_FILES=1
     [ -f /etc/init.d/cliproxyapi ] && HAS_FILES=1
     [ -f /opt/etc/init.d/S99zeroclaw ] && HAS_FILES=1
     [ -f /opt/etc/init.d/S98cliproxyapi ] && HAS_FILES=1
+    [ -f /usr/local/bin/zeroclaw-service ] && HAS_FILES=1
+    [ -f /usr/local/bin/cliproxyapi-service ] && HAS_FILES=1
+    [ -f /opt/bin/zeroclaw-service ] && HAS_FILES=1
+    [ -f /opt/bin/cliproxyapi-service ] && HAS_FILES=1
+    [ -f /usr/bin/zeroclaw-service ] && HAS_FILES=1
+    [ -f /usr/bin/cliproxyapi-service ] && HAS_FILES=1
 
     if [ "$HAS_FILES" = "0" ] && ! runtime_residue_present; then
         debug "No existing installation found, skipping cleanup"
@@ -733,6 +1220,7 @@ cleanup_existing_installation() {
     /etc/init.d/zeroclaw stop 2>/dev/null && debug "  zeroclaw stopped via /etc/init.d" || true
     /opt/etc/init.d/S98cliproxyapi stop 2>/dev/null && debug "  cliproxyapi stopped via /opt init.d" || true
     /opt/etc/init.d/S99zeroclaw stop 2>/dev/null && debug "  zeroclaw stopped via /opt init.d" || true
+    stop_manual_services
 
     delete_procd_service_state
 
@@ -746,12 +1234,28 @@ cleanup_existing_installation() {
 
     debug "Removing old binaries..."
     rm -f /usr/bin/zeroclaw
+    rm -f /usr/local/bin/zeroclaw
     rm -f /opt/bin/zeroclaw
     rm -f /opt/cliproxyapi/cli-proxy-api
+    rm -rf /usr/local/lib/zeroclaw
+    rm -rf /usr/lib/zeroclaw
+    rm -f /usr/local/bin/zeroclaw-service /usr/local/bin/cliproxyapi-service
+    rm -f /opt/bin/zeroclaw-service /opt/bin/cliproxyapi-service
+    rm -f /usr/bin/zeroclaw-service /usr/bin/cliproxyapi-service
 
     force_release_service_runtime 15
 
     info "Teardown complete -- ready for fresh install"
+}
+
+detect_management_port() {
+    if is_port_listening 8317; then
+        echo "8317"
+    elif is_port_listening 8318; then
+        echo "8318"
+    else
+        echo "8317"
+    fi
 }
 
 verify_services() {
@@ -789,9 +1293,10 @@ verify_services() {
     echo "   8318 (api):   $(echo "$PORT_8318" | grep -q 'NOT' && echo '[FAIL] NOT listening' || echo '[OK] listening')"
     echo "   3080 (zc):    $(echo "$PORT_3080" | grep -q 'NOT' && echo '[FAIL] NOT listening' || echo '[OK] listening')"
     echo ""
+    MGMT_PORT=$(detect_management_port)
     echo " Web UI:"
     echo "   ZeroClaw:    http://${ROUTER_IP}:3080"
-    echo "   CLIProxy:    http://${ROUTER_IP}:8317/management.html"
+    echo "   CLIProxy:    http://${ROUTER_IP}:${MGMT_PORT}/management.html"
     echo ""
 
     echo " Telegram: Configured"
@@ -804,6 +1309,11 @@ verify_services() {
         echo "   /etc/init.d/cliproxyapi restart"
         echo "   logread | grep zeroclaw | tail -30"
         echo "   logread | grep cli-proxy | tail -30"
+    elif [ "$PLATFORM" = "manual" ]; then
+        echo "   ${INSTALL_BIN_DIR}/zeroclaw-service restart"
+        echo "   ${INSTALL_BIN_DIR}/cliproxyapi-service restart"
+        echo "   cat ${MANUAL_LOG_DIR:-/tmp}/zeroclaw.log"
+        echo "   cat ${MANUAL_LOG_DIR:-/tmp}/cliproxyapi.log"
     else
         echo "   /opt/etc/init.d/S99zeroclaw restart"
         echo "   /opt/etc/init.d/S98cliproxyapi restart"
@@ -831,17 +1341,17 @@ backup_configs() {
     [ -d /root/.zeroclaw/workspace/memory ] && cp -r /root/.zeroclaw/workspace/memory "$BACKUP_DIR/" && info "  workspace/memory/"
     [ -d /root/.zeroclaw/workspace/sessions ] && cp -r /root/.zeroclaw/workspace/sessions "$BACKUP_DIR/" && info "  workspace/sessions/"
 
-    # CLIProxyAPI auth -- check both possible locations
-    CLIPROXY_DIR="/opt/cliproxyapi"
-    if [ -d "$CLIPROXY_DIR/auth" ]; then
-        mkdir -p "$BACKUP_DIR/auth"
-        cp "$CLIPROXY_DIR/auth/"*.json "$BACKUP_DIR/auth/" 2>/dev/null
-        AUTH_COUNT=$(ls "$BACKUP_DIR/auth/"*.json 2>/dev/null | wc -l)
-        info "  auth/ ($AUTH_COUNT credential files)"
-    fi
-
-    # CLIProxyAPI config
-    [ -f "$CLIPROXY_DIR/config.yaml" ] && cp "$CLIPROXY_DIR/config.yaml" "$BACKUP_DIR/" && info "  config.yaml"
+    for CLIPROXY_DIR in /opt/cliproxyapi /usr/local/lib/zeroclaw/cliproxyapi /usr/lib/zeroclaw/cliproxyapi; do
+        [ -d "$CLIPROXY_DIR" ] || continue
+        if [ -d "$CLIPROXY_DIR/auth" ]; then
+            mkdir -p "$BACKUP_DIR/auth"
+            cp "$CLIPROXY_DIR/auth/"*.json "$BACKUP_DIR/auth/" 2>/dev/null || true
+            AUTH_COUNT=$(ls "$BACKUP_DIR/auth/"*.json 2>/dev/null | wc -l)
+            info "  auth/ ($AUTH_COUNT credential files)"
+        fi
+        [ -f "$CLIPROXY_DIR/config.yaml" ] && cp "$CLIPROXY_DIR/config.yaml" "$BACKUP_DIR/" && info "  config.yaml"
+        break
+    done
 
     info "Backup hoàn tất: $BACKUP_DIR"
     echo ""

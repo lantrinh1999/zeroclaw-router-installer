@@ -50,6 +50,9 @@ CONFIGS="$ROOT_DIR/configs"
 check_disk_space 100 || exit 1
 check_binaries_exist "$BIN_SRC" || exit 1
 
+# Ensure init script runtime exists on minimal/procd-like systems.
+ensure_rc_common_compat || exit 1
+
 # -- User input (safe for non-interactive) -----------
 step "Telegram config (mandatory)"
 ask_telegram_config || exit 1
@@ -60,13 +63,12 @@ cleanup_existing_installation
 # -- Install binaries --------------------------------
 step "Installing binaries"
 
-debug "Copying zeroclaw to /usr/bin/zeroclaw..."
-if cp "$BIN_SRC/zeroclaw" /usr/bin/zeroclaw; then
+debug "Installing zeroclaw to /usr/bin/zeroclaw (prefer mv)..."
+if install_binary_from_stage "$BIN_SRC/zeroclaw" /usr/bin/zeroclaw "zeroclaw"; then
     chmod +x /usr/bin/zeroclaw
     info "  /usr/bin/zeroclaw installed ($(ls -la /usr/bin/zeroclaw | awk '{print $5}')B)"
 else
-    error "FATAL: Failed to copy zeroclaw binary!"
-    error "  Source: $BIN_SRC/zeroclaw"
+    error "FATAL: Failed to install zeroclaw binary!"
     error "  Check disk space: $(df /usr 2>/dev/null | tail -1)"
     exit 1
 fi
@@ -74,13 +76,12 @@ fi
 debug "Creating /opt/cliproxyapi/ ..."
 mkdir -p /opt/cliproxyapi
 
-debug "Copying cli-proxy-api to /opt/cliproxyapi/ ..."
-if cp "$BIN_SRC/cli-proxy-api" /opt/cliproxyapi/cli-proxy-api; then
+debug "Installing cli-proxy-api to /opt/cliproxyapi/ (prefer mv)..."
+if install_binary_from_stage "$BIN_SRC/cli-proxy-api" /opt/cliproxyapi/cli-proxy-api "cli-proxy-api"; then
     chmod +x /opt/cliproxyapi/cli-proxy-api
     info "  /opt/cliproxyapi/cli-proxy-api installed ($(ls -la /opt/cliproxyapi/cli-proxy-api | awk '{print $5}')B)"
 else
-    error "FATAL: Failed to copy cli-proxy-api binary!"
-    error "  Source: $BIN_SRC/cli-proxy-api"
+    error "FATAL: Failed to install cli-proxy-api binary!"
     error "  Check disk space: $(df /opt 2>/dev/null | tail -1)"
     exit 1
 fi
@@ -140,17 +141,42 @@ debug "Resetting procd service state before fresh start..."
 /etc/init.d/cliproxyapi stop 2>/dev/null || true
 /etc/init.d/zeroclaw stop 2>/dev/null || true
 delete_procd_service_state
+force_release_service_runtime 10
 
 # === START CLIProxyAPI ===
-info "Starting CLIProxyAPI..."
-debug "Running: /etc/init.d/cliproxyapi start"
-/etc/init.d/cliproxyapi start 2>&1 | while read line; do debug "  cliproxyapi: $line"; done
+MAX_CP_START_RETRIES=3
+CP_RETRY=1
+API_UP=0
+SOCAT_UP=0
 
-wait_for_port_with_process_guard 8318 cli-proxy-api 15 || true
+while [ "$CP_RETRY" -le "$MAX_CP_START_RETRIES" ]; do
+    info "Starting CLIProxyAPI... (attempt ${CP_RETRY}/${MAX_CP_START_RETRIES})"
+    debug "Running: /etc/init.d/cliproxyapi start"
+    /etc/init.d/cliproxyapi start 2>&1 | while read line; do debug "  cliproxyapi: $line"; done
 
-# === VERIFY ===
-API_UP=$(is_port_listening 8318 && echo "1" || echo "0")
-SOCAT_UP=$(is_port_listening 8317 && echo "1" || echo "0")
+    wait_for_port_with_process_guard 8318 cli-proxy-api 20 || true
+
+    API_UP=$(is_port_listening 8318 && echo "1" || echo "0")
+    SOCAT_UP=$(is_port_listening 8317 && echo "1" || echo "0")
+    [ "$API_UP" = "1" ] && break
+
+    warn "CLIProxyAPI backend (port 8318) did NOT start on attempt ${CP_RETRY}!"
+    show_port_snapshot 8317 8318
+    show_port_activity 8318
+    PIDS=$(process_pids cli-proxy-api)
+    [ -n "$PIDS" ] && debug "cli-proxy-api pid(s): $PIDS" || debug "cli-proxy-api pid(s): <none>"
+    logread 2>/dev/null | grep -i 'cli-proxy' | tail -8 | while IFS= read -r line; do debug "logread: $line"; done
+
+    if [ "$CP_RETRY" -lt "$MAX_CP_START_RETRIES" ]; then
+        warn "Retrying CLIProxyAPI start after forced cleanup..."
+        /etc/init.d/cliproxyapi stop 2>/dev/null || true
+        delete_procd_service_state
+        force_release_service_runtime 12
+        sleep 2
+    fi
+
+    CP_RETRY=$((CP_RETRY + 1))
+done
 
 if [ "$API_UP" = "1" ] && [ "$SOCAT_UP" = "1" ]; then
     info "CLIProxyAPI is running (socat:8317 -> api:8318)"
@@ -165,10 +191,12 @@ elif [ "$API_UP" = "1" ] && [ "$SOCAT_UP" = "0" ]; then
 else
     warn "CLIProxyAPI backend (port 8318) did NOT start!"
     show_port_snapshot 8317 8318
+    show_port_activity 8318
     PIDS=$(process_pids cli-proxy-api)
     [ -n "$PIDS" ] && debug "cli-proxy-api pid(s): $PIDS" || debug "cli-proxy-api pid(s): <none>"
     logread 2>/dev/null | grep -i 'cli-proxy' | tail -5 | while IFS= read -r line; do debug "logread: $line"; done
     error "Check: logread | grep cli-proxy"
+    exit 1
 fi
 
 info "Starting ZeroClaw..."

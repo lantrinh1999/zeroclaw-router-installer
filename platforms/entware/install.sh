@@ -150,13 +150,12 @@ cleanup_existing_installation
 # -- Install binaries --------------------------------
 info "Installing binaries..."
 
-mkdir -p /opt/bin
-cp "$BIN_SRC/zeroclaw" /opt/bin/zeroclaw
+install_binary_from_stage "$BIN_SRC/zeroclaw" /opt/bin/zeroclaw "zeroclaw"
 chmod +x /opt/bin/zeroclaw
 info "  /opt/bin/zeroclaw installed"
 
 mkdir -p /opt/cliproxyapi
-cp "$BIN_SRC/cli-proxy-api" /opt/cliproxyapi/cli-proxy-api
+install_binary_from_stage "$BIN_SRC/cli-proxy-api" /opt/cliproxyapi/cli-proxy-api "cli-proxy-api"
 chmod +x /opt/cliproxyapi/cli-proxy-api
 info "  /opt/cliproxyapi/cli-proxy-api installed"
 
@@ -187,6 +186,9 @@ $ENTWARE_OPKG update >/dev/null 2>&1 || true
 $ENTWARE_OPKG install socat 2>/dev/null || warn "socat install failed -- IPv4 access may not work"
 
 # -- Start services ----------------------------------
+info "Ensuring clean runtime state before service start..."
+prepare_fresh_service_start 10
+
 info "Starting CLIProxyAPI..."
 /opt/etc/init.d/S98cliproxyapi start
 

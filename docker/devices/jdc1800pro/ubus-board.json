@@ -1,0 +1,16 @@
+{
+	"kernel": "6.12.55",
+	"hostname": "Kwrt",
+	"system": "ARMv8 Processor rev 4",
+	"model": "JDCloud RE-SS-01",
+	"board_name": "jdcloud,re-ss-01",
+	"rootfs_type": "squashfs",
+	"release": {
+		"distribution": "Kwrt",
+		"version": "24.10.4",
+		"revision": "10.30.2025",
+		"target": "qualcommax/ipq60xx",
+		"description": "Kwrt 24.10.4 10.30.2025 by Kiddin'",
+		"builddate": "1761754237"
+	}
+}

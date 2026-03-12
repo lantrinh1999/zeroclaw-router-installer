@@ -3,21 +3,38 @@ chcp 65001 >nul 2>&1
 REM =======================================================
 REM ZeroClaw Quick Setup for Windows
 REM =======================================================
-REM Usage: setup.bat [device-ip]
+REM Usage: setup.bat [device-ip] [-p port]
 REM Example: setup.bat 192.168.81.1
+REM          setup.bat localhost -p 2222
 REM Supports: aarch64/OpenWrt, MIPS32r2/Entware
 REM Requires: Windows 10+ (built-in SSH)
 
 setlocal enabledelayedexpansion
 
-set ROUTER_IP=%1
-if "%ROUTER_IP%"=="" set ROUTER_IP=192.168.81.1
+REM Parse arguments: setup.bat [ip] [-p port]
+set ROUTER_IP=192.168.81.1
+set SSH_PORT=22
+
+:parse_args
+if "%~1"=="" goto :args_done
+if /i "%~1"=="-p" (
+    set SSH_PORT=%~2
+    shift
+    shift
+    goto :parse_args
+)
+set ROUTER_IP=%~1
+shift
+goto :parse_args
+
+:args_done
 set REMOTE_DIR=/tmp/zeroclaw-router-installer
-set SSH_BASE=-o StrictHostKeyChecking=no
+set SSH_BASE=-p %SSH_PORT% -o StrictHostKeyChecking=no
+set SCP_BASE=-P %SSH_PORT% -O -o StrictHostKeyChecking=no
 
 echo.
 echo =======================================================
-echo  ZeroClaw Quick Setup - %ROUTER_IP%
+echo  ZeroClaw Quick Setup - %ROUTER_IP% (port %SSH_PORT%)
 echo =======================================================
 echo.
 
@@ -150,9 +167,13 @@ if "%TG_USERID%"=="" (
 
 REM Test Telegram API
 echo   [INFO] Dang gui tin nhan test qua Telegram...
-curl -s -X POST "https://api.telegram.org/bot%TG_TOKEN%/sendMessage" -d "chat_id=%TG_USERID%&text=ZeroClaw installer: Ket noi Telegram thanh cong." > %TEMP%\zc_tg_test.txt 2>&1
+curl -s --connect-timeout 10 --max-time 15 -X POST "https://api.telegram.org/bot%TG_TOKEN%/sendMessage" -d "chat_id=%TG_USERID%&text=ZeroClaw installer: Ket noi Telegram thanh cong." > %TEMP%\zc_tg_test.txt 2>&1
+set TG_CURL_EXIT=!errorlevel!
 findstr /C:"\"ok\":true" %TEMP%\zc_tg_test.txt >nul 2>&1
 if errorlevel 1 (
+    if not "!TG_CURL_EXIT!"=="0" (
+        echo   [WARN] Telegram API khong phan hoi kip thoi ^(timeout/network^).
+    )
     echo   [FAIL] Telegram test that bai. Kiem tra lai Bot Token va User ID.
     del %TEMP%\zc_tg_test.txt >nul 2>&1
     set /p TG_RETRY="  Nhap lai? [Y/n]: "
@@ -171,20 +192,17 @@ if /i "%TG_CONFIRM%"=="n" (
 )
 echo.
 
-REM Step 2: Upload
+REM Step 2: Upload (tar over SSH -- no scp needed on device)
 echo.
 echo [2/5] Uploading to device...
-ssh %SSH_BASE% root@%ROUTER_IP% "rm -rf %REMOTE_DIR%; mkdir -p %REMOTE_DIR%/binaries/%BIN_ARCH% %REMOTE_DIR%/platforms/%PLATFORM%"
+ssh %SSH_BASE% root@%ROUTER_IP% "rm -rf %REMOTE_DIR%; mkdir -p %REMOTE_DIR%"
 if errorlevel 1 (
     echo [ERROR] Failed to prepare remote directory
     exit /b 1
 )
 
 echo       Uploading files...
-scp -O %SSH_BASE% -r binaries\%BIN_ARCH%\* root@%ROUTER_IP%:%REMOTE_DIR%/binaries/%BIN_ARCH%/
-scp -O %SSH_BASE% -r configs root@%ROUTER_IP%:%REMOTE_DIR%/
-scp -O %SSH_BASE% -r platforms\%PLATFORM%\* root@%ROUTER_IP%:%REMOTE_DIR%/platforms/%PLATFORM%/
-scp -O %SSH_BASE% common.sh root@%ROUTER_IP%:%REMOTE_DIR%/
+tar cf - -C . binaries\%BIN_ARCH% configs platforms\%PLATFORM% common.sh | ssh %SSH_BASE% root@%ROUTER_IP% "tar xf - -C %REMOTE_DIR%"
 if errorlevel 1 (
     echo [ERROR] Upload failed
     exit /b 1
@@ -210,7 +228,17 @@ timeout /t 2 /nobreak >nul
 curl -s -o nul -w "HTTP Status: %%{http_code}" --connect-timeout 5 http://%ROUTER_IP%:8317/management.html
 echo.
 
-REM Step 5: Done
+REM Step 5: Cleanup staging files
+echo.
+echo [5/5] Cleaning staging files...
+ssh %SSH_BASE% root@%ROUTER_IP% "rm -rf %REMOTE_DIR%" >nul 2>&1
+if errorlevel 1 (
+    echo [WARN] Could not remove remote staging directory: %REMOTE_DIR%
+) else (
+    echo [OK] Removed remote staging directory: %REMOTE_DIR%
+)
+
+REM Done
 echo.
 echo =======================================================
 echo  Done! Open http://%ROUTER_IP%:8317/management.html

@@ -1,0 +1,35 @@
+# JDCloud RE-SS-01 (jdc1800pro) - Kwrt 24.10.4
+#
+# Build:  docker compose -f docker/devices/jdc1800pro/docker-compose.yml build
+# Start:  docker compose -f docker/devices/jdc1800pro/docker-compose.yml up -d
+# Test:   sh setup.sh localhost -p 2222
+# Logs:   docker logs jdc1800pro
+# Stop:   docker compose -f docker/devices/jdc1800pro/docker-compose.yml down
+
+services:
+  jdc1800pro:
+    build:
+      context: ../../              # docker/ root (Dockerfile + scripts)
+      dockerfile: Dockerfile
+      args:
+        DEVICE: jdc1800pro
+    container_name: jdc1800pro
+    hostname: Kwrt
+    platform: linux/arm64
+
+    # JDCloud RE-SS-01: IPQ60xx 4 cores, 512MB RAM
+    cpus: 4
+    mem_limit: 512m
+    memswap_limit: 512m
+    tmpfs:
+      - /overlay:size=512m
+
+    ports:
+      - "2222:22"
+      - "8317:8317"
+      - "8318:8318"
+      - "3080:3080"
+
+    restart: unless-stopped
+    stdin_open: true
+    tty: true

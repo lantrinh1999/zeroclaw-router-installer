@@ -3,19 +3,36 @@ chcp 65001 >nul 2>&1
 REM =======================================================
 REM ZeroClaw Uninstaller for Windows
 REM =======================================================
-REM Usage: teardown.bat [device-ip]
+REM Usage: teardown.bat [device-ip] [-p port]
 REM Example: teardown.bat 192.168.81.1
+REM          teardown.bat localhost -p 2222
 
 setlocal enabledelayedexpansion
 
-set ROUTER_IP=%1
-if "%ROUTER_IP%"=="" set ROUTER_IP=192.168.81.1
+REM Parse arguments: teardown.bat [ip] [-p port]
+set ROUTER_IP=192.168.81.1
+set SSH_PORT=22
+
+:parse_args
+if "%~1"=="" goto :args_done
+if /i "%~1"=="-p" (
+    set SSH_PORT=%~2
+    shift
+    shift
+    goto :parse_args
+)
+set ROUTER_IP=%~1
+shift
+goto :parse_args
+
+:args_done
 set REMOTE_DIR=/tmp/zeroclaw-uninstaller
-set SSH_BASE=-o StrictHostKeyChecking=no
+set SSH_BASE=-p %SSH_PORT% -o StrictHostKeyChecking=no
+set SCP_BASE=-P %SSH_PORT% -O -o StrictHostKeyChecking=no
 
 echo.
 echo =======================================================
-echo  ZeroClaw Uninstaller - %ROUTER_IP%
+echo  ZeroClaw Uninstaller - %ROUTER_IP% (port %SSH_PORT%)
 echo =======================================================
 echo.
 
@@ -87,8 +104,8 @@ REM Step 2: Upload
 echo.
 echo [2/3] Uploading uninstaller...
 ssh %SSH_BASE% root@%ROUTER_IP% "rm -rf %REMOTE_DIR%; mkdir -p %REMOTE_DIR%/platforms/%PLATFORM%"
-scp -O %SSH_BASE% common.sh root@%ROUTER_IP%:%REMOTE_DIR%/
-scp -O %SSH_BASE% platforms\%PLATFORM%\uninstall.sh root@%ROUTER_IP%:%REMOTE_DIR%/platforms/%PLATFORM%/
+scp %SCP_BASE% common.sh root@%ROUTER_IP%:%REMOTE_DIR%/
+scp %SCP_BASE% platforms\%PLATFORM%\uninstall.sh root@%ROUTER_IP%:%REMOTE_DIR%/platforms/%PLATFORM%/
 if errorlevel 1 (
     echo [ERROR] Upload failed
     exit /b 1
