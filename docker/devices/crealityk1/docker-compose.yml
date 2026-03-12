@@ -1,0 +1,37 @@
+# Creality K1 (MIPS32r2) - Buildroot + Entware
+#
+# Yêu cầu QEMU (chỉ chạy 1 lần):
+#   docker run --privileged --rm tonistiigi/binfmt --install mipsel
+#
+# Build:  docker compose -f docker/devices/crealityk1/docker-compose.yml build
+# Start:  docker compose -f docker/devices/crealityk1/docker-compose.yml up -d
+# Test:   sh setup.sh localhost -p 2223
+# Logs:   docker logs crealityk1
+# Stop:   docker compose -f docker/devices/crealityk1/docker-compose.yml down
+
+services:
+  crealityk1:
+    build:
+      context: ../../              # docker/ root (Dockerfile.mips + scripts)
+      dockerfile: Dockerfile.mips
+      args:
+        DEVICE: crealityk1
+    container_name: crealityk1
+    hostname: creality
+    platform: linux/mips64le
+
+    # Creality K1: Ingenic X2000E dual-core, 256MB RAM
+    cpus: 2
+    mem_limit: 256m
+    memswap_limit: 256m
+    tmpfs:
+      - /overlay:size=512m
+
+    ports:
+      - "2223:22"
+      - "8319:8317"
+      - "3081:3080"
+
+    restart: unless-stopped
+    stdin_open: true
+    tty: true

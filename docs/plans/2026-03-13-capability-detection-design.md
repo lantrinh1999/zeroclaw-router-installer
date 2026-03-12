@@ -19,7 +19,7 @@ The detector separates:
 - `SERVICE_BACKEND`: real service manager capability
 - `INSTALL_LAYOUT`: writable install layout
 - `EXEC_MODE`: managed service vs manual run
-- `PLATFORM`: installer strategy directory in this repo
+- `INSTALLER`: installer strategy directory in this repo
 
 Detection order:
 
@@ -31,9 +31,9 @@ Detection order:
 
 ## Strategy Mapping
 
-- `procd` -> `platforms/procd`
-- `entware-sysv` -> `platforms/entware`
-- everything else with writable layout -> `platforms/manual`
+- `procd` -> `installers/procd`
+- `entware-sysv` -> `installers/entware`
+- everything else with writable layout -> `installers/manual`
 - unsupported arch or no writable layout -> fail
 
 Manual mode remains a supported outcome, not an error:
@@ -47,8 +47,8 @@ Manual mode remains a supported outcome, not an error:
 
 - move shared detection into `common.sh`
 - make `setup.sh` and `teardown.sh` call the shared detector remotely
-- add `platforms/manual/install.sh`
-- add `platforms/manual/uninstall.sh`
+- add `installers/manual/install.sh`
+- add `installers/manual/uninstall.sh`
 - extend cleanup and verification helpers to understand manual installs
 
 ## Verification

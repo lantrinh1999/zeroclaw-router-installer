@@ -49,23 +49,23 @@ tar cf - -C "$SCRIPT_DIR" common.sh \
 
 DETECT=$(ssh $SSH_OPTS "root@$ROUTER_IP" "cd '$REMOTE_DIR' && . ./common.sh >/dev/null 2>&1 && detect_platform >/dev/null 2>&1 && print_platform_exports")
 
-PLATFORM=$(parse_detect_var PLATFORM)
+INSTALLER=$(parse_detect_var INSTALLER)
 BIN_ARCH=$(parse_detect_var BIN_ARCH)
 ARCH=$(parse_detect_var ARCH)
 INIT_TYPE=$(parse_detect_var INIT_TYPE)
 EXEC_MODE=$(parse_detect_var EXEC_MODE)
 
-echo "  Platform: $PLATFORM ($ARCH, init=$INIT_TYPE, mode=$EXEC_MODE)"
+echo "  Installer: $INSTALLER ($ARCH, init=$INIT_TYPE, mode=$EXEC_MODE)"
 
-if [ "$PLATFORM" = "unknown" ]; then
-    echo "[ERROR] Cannot detect platform"
+if [ "$INSTALLER" = "unknown" ]; then
+    echo "[ERROR] Cannot detect installer"
     exit 1
 fi
 
 # Step 2: Upload uninstaller
 echo ""
 echo "[2/3] Uploading uninstaller..."
-ssh $SSH_OPTS "root@$ROUTER_IP" "rm -rf $REMOTE_DIR; mkdir -p $REMOTE_DIR/platforms/$PLATFORM"
+ssh $SSH_OPTS "root@$ROUTER_IP" "rm -rf $REMOTE_DIR; mkdir -p $REMOTE_DIR/installers/$INSTALLER"
 
 # Try scp first, fallback to tar-over-ssh if device doesn't have scp
 HAS_SCP=$(ssh $SSH_OPTS "root@$ROUTER_IP" "command -v scp >/dev/null 2>&1 && echo yes || echo no")
@@ -76,14 +76,14 @@ if [ "$HAS_SCP" = "yes" ]; then
         "$SCRIPT_DIR/common.sh" \
         "root@$ROUTER_IP:$REMOTE_DIR/" \
         && scp $SCP_OPTS -o ControlPath="$SOCK" \
-        "$SCRIPT_DIR/platforms/$PLATFORM/uninstall.sh" \
-        "root@$ROUTER_IP:$REMOTE_DIR/platforms/$PLATFORM/" \
+        "$SCRIPT_DIR/installers/$INSTALLER/uninstall.sh" \
+        "root@$ROUTER_IP:$REMOTE_DIR/installers/$INSTALLER/" \
         || { echo "[ERROR] Upload failed"; exit 1; }
 else
     echo "  scp not found on device, using tar over ssh..."
     tar cf - -C "$SCRIPT_DIR" \
         "common.sh" \
-        "platforms/$PLATFORM/uninstall.sh" \
+        "installers/$INSTALLER/uninstall.sh" \
         | ssh $SSH_OPTS "root@$ROUTER_IP" "tar xf - -C $REMOTE_DIR" \
         || { echo "[ERROR] Upload failed"; exit 1; }
 fi
@@ -91,8 +91,8 @@ echo "[OK] Uploaded"
 
 # Step 3: Run uninstaller
 echo ""
-echo "[3/3] Running uninstaller (platform: $PLATFORM)..."
+echo "[3/3] Running uninstaller (installer: $INSTALLER)..."
 echo "-------------------------------------"
-ssh $SSH_OPTS "root@$ROUTER_IP" "cd $REMOTE_DIR && sh platforms/$PLATFORM/uninstall.sh"
+ssh $SSH_OPTS "root@$ROUTER_IP" "cd $REMOTE_DIR && sh installers/$INSTALLER/uninstall.sh"
 echo "-------------------------------------"
 echo ""

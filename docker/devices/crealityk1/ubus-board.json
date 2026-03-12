@@ -1,0 +1,16 @@
+{
+	"kernel": "4.4.94",
+	"hostname": "creality",
+	"system": "MIPS Xburst (X2000E)",
+	"model": "Creality K1",
+	"board_name": "ingenic,x2000e-k1",
+	"rootfs_type": "squashfs",
+	"release": {
+		"distribution": "Buildroot",
+		"version": "2020.02",
+		"revision": "k1-ingenic",
+		"target": "mipsel/x2000e",
+		"description": "Buildroot 2020.02 (Ingenic X2000)",
+		"builddate": "1640000000"
+	}
+}

@@ -27,7 +27,6 @@ services:
     ports:
       - "2222:22"
       - "8317:8317"
-      - "8318:8318"
       - "3080:3080"
 
     restart: unless-stopped

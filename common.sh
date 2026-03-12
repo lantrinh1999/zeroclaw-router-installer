@@ -112,7 +112,7 @@ detect_arch() {
     ARCH=$(uname -m)
     case "$ARCH" in
         aarch64|arm64)  BIN_ARCH="aarch64" ;;
-        mips|mipsel)    BIN_ARCH="mips32r2" ;;
+        mips|mipsel|mips64|mips64el)  BIN_ARCH="mips32r2" ;;
         *)              BIN_ARCH="unknown" ;;
     esac
     debug "detect_arch: ARCH=$ARCH, BIN_ARCH=$BIN_ARCH"
@@ -208,11 +208,27 @@ first_writable_path() {
     return 1
 }
 
+procd_binary_present() {
+    [ -x /sbin/procd ] || [ -x /usr/sbin/procd ]
+}
+
+procd_process_running() {
+    if command -v pidof >/dev/null 2>&1; then
+        pidof procd >/dev/null 2>&1 && return 0
+    fi
+
+    if command -v pgrep >/dev/null 2>&1; then
+        pgrep -x procd >/dev/null 2>&1 && return 0
+    fi
+
+    ps 2>/dev/null | grep '[p]rocd' >/dev/null 2>&1
+}
+
 detect_init() {
     INIT_TYPE="unknown"
     SERVICE_BACKEND="manual"
 
-    if [ "$PID1_COMM" = "procd" ] || [ -x /sbin/procd ] || { [ -f /etc/rc.common ] && [ -d /etc/config ]; }; then
+    if [ "$PID1_COMM" = "procd" ] || procd_process_running || procd_binary_present || { [ -f /etc/rc.common ] && [ -d /etc/config ]; }; then
         INIT_TYPE="procd"
         SERVICE_BACKEND="procd"
     elif { [ "$PID1_COMM" = "systemd" ] || [ -d /run/systemd/system ]; } && command -v systemctl >/dev/null 2>&1; then
@@ -235,8 +251,14 @@ detect_init() {
         SERVICE_BACKEND="sysv"
     fi
 
-    if [ "$RUNTIME_CONTEXT" = "container" ] && [ "$SERVICE_BACKEND" != "procd" ]; then
-        SERVICE_BACKEND="manual"
+    if [ "$RUNTIME_CONTEXT" = "container" ]; then
+        case "$SERVICE_BACKEND" in
+            procd|entware-sysv)
+                ;;
+            *)
+                SERVICE_BACKEND="manual"
+                ;;
+        esac
     fi
 
     debug "detect_init: INIT_TYPE=$INIT_TYPE, SERVICE_BACKEND=$SERVICE_BACKEND"
@@ -277,7 +299,7 @@ detect_install_layout() {
 }
 
 detect_execution_mode() {
-    PLATFORM="unknown"
+    INSTALLER="unknown"
     EXEC_MODE="unsupported"
 
     if [ "$BIN_ARCH" = "unknown" ]; then
@@ -286,17 +308,17 @@ detect_execution_mode() {
     fi
 
     if [ "$SERVICE_BACKEND" = "procd" ]; then
-        PLATFORM="procd"
+        INSTALLER="procd"
         EXEC_MODE="managed-service"
     elif [ "$SERVICE_BACKEND" = "entware-sysv" ]; then
-        PLATFORM="entware"
+        INSTALLER="entware"
         EXEC_MODE="managed-service"
     elif [ "$INSTALL_LAYOUT" != "unknown" ]; then
-        PLATFORM="manual"
+        INSTALLER="manual"
         EXEC_MODE="manual-run"
     fi
 
-    debug "detect_execution_mode: PLATFORM=$PLATFORM, EXEC_MODE=$EXEC_MODE"
+    debug "detect_execution_mode: INSTALLER=$INSTALLER, EXEC_MODE=$EXEC_MODE"
 }
 
 detect_platform_failures() {
@@ -346,7 +368,7 @@ print_platform_exports() {
     echo "INSTALL_CLIPROXY_DIR=$INSTALL_CLIPROXY_DIR"
     echo "EXEC_MODE=$EXEC_MODE"
     echo "ENTWARE=$([ "$ENTWARE_INSTALLED" = "1" ] && echo "yes" || echo "no")"
-    echo "PLATFORM=$PLATFORM"
+    echo "INSTALLER=$INSTALLER"
     echo "RAM=${RAM_MB}MB"
     echo "DISK=${DISK_FREE_MB}MB"
 
@@ -388,7 +410,7 @@ detect_platform() {
     [ -z "$DISK_FREE_KB" ] && DISK_FREE_KB=$(df / 2>/dev/null | tail -1 | awk '{print $4}')
     DISK_FREE_MB=$((DISK_FREE_KB / 1024))
 
-    debug "Platform detection complete: PLATFORM=$PLATFORM, INIT=$INIT_TYPE, BACKEND=$SERVICE_BACKEND, LAYOUT=$INSTALL_LAYOUT, MODE=$EXEC_MODE, RAM=${RAM_MB}MB, DISK=${DISK_FREE_MB}MB"
+    debug "Platform detection complete: INSTALLER=$INSTALLER, INIT=$INIT_TYPE, BACKEND=$SERVICE_BACKEND, LAYOUT=$INSTALL_LAYOUT, MODE=$EXEC_MODE, RAM=${RAM_MB}MB, DISK=${DISK_FREE_MB}MB"
 }
 
 show_platform_info() {
@@ -406,10 +428,10 @@ show_platform_info() {
     echo "  Entware:         $([ "$ENTWARE_INSTALLED" = "1" ] && echo "Installed" || echo "Not installed")"
     echo "  RAM:             ${RAM_MB}MB"
     echo "  Disk Free:       ${DISK_FREE_MB}MB"
-    echo "  Platform:        $PLATFORM"
+    echo "  Installer:       $INSTALLER"
     echo ""
 
-    debug "PLATFORM_INFO: arch=$ARCH/$BIN_ARCH os=$OS_NAME/$OS_TYPE pid1=$PID1_COMM init=$INIT_TYPE backend=$SERVICE_BACKEND layout=$INSTALL_LAYOUT mode=$EXEC_MODE ram=${RAM_MB}MB disk=${DISK_FREE_MB}MB platform=$PLATFORM"
+    debug "INSTALLER_INFO: arch=$ARCH/$BIN_ARCH os=$OS_NAME/$OS_TYPE pid1=$PID1_COMM init=$INIT_TYPE backend=$SERVICE_BACKEND layout=$INSTALL_LAYOUT mode=$EXEC_MODE ram=${RAM_MB}MB disk=${DISK_FREE_MB}MB installer=$INSTALLER"
 }
 
 confirm_platform() {
@@ -492,21 +514,26 @@ install_binary_from_stage() {
     fi
 
     _DST_DIR=$(dirname "$_DST")
+    _TMP="${_DST}.new.$$"
     mkdir -p "$_DST_DIR" 2>/dev/null || true
-    rm -f "$_DST" 2>/dev/null || true
+    rm -f "$_TMP" 2>/dev/null || true
 
-    # Prefer move to avoid duplicate large binaries in /tmp staging.
-    if mv "$_SRC" "$_DST" 2>/dev/null; then
-        debug "  moved: $_SRC -> $_DST"
-        return 0
+    # Stage into the destination directory first so a failed copy does not
+    # remove the currently working binary.
+    if ! cp "$_SRC" "$_TMP" 2>/dev/null; then
+        error "FATAL: Failed to stage $_LABEL"
+        error "  Source: $_SRC"
+        error "  Temp destination: $_TMP"
+        return 1
     fi
 
-    # Fallback for cross-device or restricted mv implementations.
-    if cp "$_SRC" "$_DST" 2>/dev/null; then
-        debug "  copied (mv fallback): $_SRC -> $_DST"
+    if mv "$_TMP" "$_DST" 2>/dev/null; then
+        debug "  staged: $_SRC -> $_DST"
         rm -f "$_SRC" 2>/dev/null || true
         return 0
     fi
+
+    rm -f "$_TMP" 2>/dev/null || true
 
     error "FATAL: Failed to install $_LABEL"
     error "  Source: $_SRC"
@@ -616,6 +643,238 @@ EOF
     fi
 
     info "Installed /etc/rc.common compatibility shim"
+    return 0
+}
+
+require_existing_install_target() {
+    _PATH="$1"
+    _LABEL="$2"
+
+    if [ -f "$_PATH" ]; then
+        debug "ONLY_BINARY target present: $_LABEL -> $_PATH"
+        return 0
+    fi
+
+    error "ONLY_BINARY requires an existing $_LABEL"
+    error "  Missing: $_PATH"
+    return 1
+}
+
+backup_existing_install_target() {
+    _SRC="$1"
+    _BACKUP="$2"
+    _LABEL="$3"
+
+    require_existing_install_target "$_SRC" "$_LABEL" || return 1
+    rm -f "$_BACKUP" 2>/dev/null || true
+
+    if cp "$_SRC" "$_BACKUP" 2>/dev/null; then
+        debug "ONLY_BINARY backup created: $_BACKUP"
+        return 0
+    fi
+
+    error "ONLY_BINARY failed to back up $_LABEL"
+    error "  Source: $_SRC"
+    error "  Backup: $_BACKUP"
+    return 1
+}
+
+restore_install_backup() {
+    _BACKUP="$1"
+    _DST="$2"
+    _LABEL="$3"
+
+    [ -f "$_BACKUP" ] || {
+        warn "ONLY_BINARY backup missing for $_LABEL: $_BACKUP"
+        return 1
+    }
+
+    if mv "$_BACKUP" "$_DST" 2>/dev/null; then
+        warn "ONLY_BINARY restored $_LABEL from backup"
+        return 0
+    fi
+
+    error "ONLY_BINARY failed to restore $_LABEL backup"
+    error "  Backup: $_BACKUP"
+    error "  Destination: $_DST"
+    return 1
+}
+
+cleanup_install_backup() {
+    _BACKUP="$1"
+    [ -n "$_BACKUP" ] && rm -f "$_BACKUP" 2>/dev/null || true
+}
+
+detect_cliproxy_config_path() {
+    for _CONFIG in \
+        /opt/cliproxyapi/config.yaml \
+        /usr/local/lib/zeroclaw/cliproxyapi/config.yaml \
+        /usr/lib/zeroclaw/cliproxyapi/config.yaml
+    do
+        [ -f "$_CONFIG" ] && {
+            printf '%s\n' "$_CONFIG"
+            return 0
+        }
+    done
+    return 1
+}
+
+detect_management_port() {
+    _CONFIG=$(detect_cliproxy_config_path)
+    _PORT=""
+
+    if [ -n "$_CONFIG" ] && [ -f "$_CONFIG" ]; then
+        _PORT=$(sed -n 's/^[[:space:]]*port:[[:space:]]*//p' "$_CONFIG" 2>/dev/null | head -n 1 | tr -d "\"'[:space:]")
+    fi
+
+    case "$_PORT" in
+        ''|*[!0-9]*)
+            echo "8317"
+            ;;
+        *)
+            echo "$_PORT"
+            ;;
+    esac
+}
+
+refresh_management_ui_only() {
+    _CONFIGS_DIR="$1"
+    _CLIPROXY_DIR="$2"
+    _SRC="$_CONFIGS_DIR/cliproxy/static/management.html"
+    _DST="$_CLIPROXY_DIR/static/management.html"
+
+    [ -f "$_SRC" ] || {
+        error "ONLY_BINARY missing staged management.html"
+        error "  Source: $_SRC"
+        return 1
+    }
+
+    mkdir -p "$_CLIPROXY_DIR/static" 2>/dev/null || true
+
+    if cp "$_SRC" "$_DST" 2>/dev/null; then
+        info "  management.html refreshed"
+    else
+        error "Failed to refresh management.html"
+        error "  Source: $_SRC"
+        error "  Destination: $_DST"
+        return 1
+    fi
+}
+
+run_only_binary_update() {
+    _BIN_SRC_DIR="$1"
+    _CONFIGS_DIR="$2"
+    _ZEROCLAW_DST="$3"
+    _CLIPROXY_DST="$4"
+    _CLIPROXY_DIR="$5"
+    _STOP_FN="$6"
+    _START_FN="$7"
+    _ZEROCLAW_BACKUP="${_ZEROCLAW_DST}.only-binary.bak.$$"
+    _CLIPROXY_BACKUP="${_CLIPROXY_DST}.only-binary.bak.$$"
+    _MGMT_PORT=""
+
+    [ -n "$_STOP_FN" ] && command -v "$_STOP_FN" >/dev/null 2>&1 || {
+        error "ONLY_BINARY stop callback is not available: $_STOP_FN"
+        return 1
+    }
+    [ -n "$_START_FN" ] && command -v "$_START_FN" >/dev/null 2>&1 || {
+        error "ONLY_BINARY start callback is not available: $_START_FN"
+        return 1
+    }
+
+    step "ONLY_BINARY pre-checks"
+    require_existing_install_target "$_ZEROCLAW_DST" "zeroclaw binary" || return 1
+    require_existing_install_target "$_CLIPROXY_DST" "cli-proxy-api binary" || return 1
+    backup_existing_install_target "$_ZEROCLAW_DST" "$_ZEROCLAW_BACKUP" "zeroclaw binary" || return 1
+    backup_existing_install_target "$_CLIPROXY_DST" "$_CLIPROXY_BACKUP" "cli-proxy-api binary" || {
+        cleanup_install_backup "$_ZEROCLAW_BACKUP"
+        return 1
+    }
+
+    "$_STOP_FN" || {
+        cleanup_install_backup "$_ZEROCLAW_BACKUP"
+        cleanup_install_backup "$_CLIPROXY_BACKUP"
+        return 1
+    }
+
+    step "Refreshing installed binaries"
+    install_binary_from_stage "$_BIN_SRC_DIR/zeroclaw" "$_ZEROCLAW_DST" "zeroclaw" || {
+        restore_install_backup "$_ZEROCLAW_BACKUP" "$_ZEROCLAW_DST" "zeroclaw binary" || true
+        cleanup_install_backup "$_CLIPROXY_BACKUP"
+        return 1
+    }
+    chmod +x "$_ZEROCLAW_DST" || {
+        error "Failed to mark zeroclaw executable: $_ZEROCLAW_DST"
+        restore_install_backup "$_ZEROCLAW_BACKUP" "$_ZEROCLAW_DST" "zeroclaw binary" || true
+        cleanup_install_backup "$_CLIPROXY_BACKUP"
+        return 1
+    }
+    info "  $_ZEROCLAW_DST updated"
+
+    install_binary_from_stage "$_BIN_SRC_DIR/cli-proxy-api" "$_CLIPROXY_DST" "cli-proxy-api" || {
+        restore_install_backup "$_ZEROCLAW_BACKUP" "$_ZEROCLAW_DST" "zeroclaw binary" || true
+        restore_install_backup "$_CLIPROXY_BACKUP" "$_CLIPROXY_DST" "cli-proxy-api binary" || true
+        "$_START_FN" >/dev/null 2>&1 || true
+        return 1
+    }
+    chmod +x "$_CLIPROXY_DST" || {
+        error "Failed to mark cli-proxy-api executable: $_CLIPROXY_DST"
+        restore_install_backup "$_ZEROCLAW_BACKUP" "$_ZEROCLAW_DST" "zeroclaw binary" || true
+        restore_install_backup "$_CLIPROXY_BACKUP" "$_CLIPROXY_DST" "cli-proxy-api binary" || true
+        "$_START_FN" >/dev/null 2>&1 || true
+        return 1
+    }
+    info "  $_CLIPROXY_DST updated"
+
+    step "Refreshing management UI"
+    refresh_management_ui_only "$_CONFIGS_DIR" "$_CLIPROXY_DIR" || {
+        "$_STOP_FN" >/dev/null 2>&1 || true
+        restore_install_backup "$_ZEROCLAW_BACKUP" "$_ZEROCLAW_DST" "zeroclaw binary" || true
+        restore_install_backup "$_CLIPROXY_BACKUP" "$_CLIPROXY_DST" "cli-proxy-api binary" || true
+        "$_START_FN" >/dev/null 2>&1 || true
+        return 1
+    }
+
+    "$_START_FN" || {
+        warn "ONLY_BINARY update failed to restart services; attempting rollback..."
+        "$_STOP_FN" >/dev/null 2>&1 || true
+        restore_install_backup "$_ZEROCLAW_BACKUP" "$_ZEROCLAW_DST" "zeroclaw binary" || true
+        restore_install_backup "$_CLIPROXY_BACKUP" "$_CLIPROXY_DST" "cli-proxy-api binary" || true
+        "$_START_FN" >/dev/null 2>&1 || true
+        return 1
+    }
+
+    _MGMT_PORT=$(detect_management_port)
+
+    step "ONLY_BINARY runtime check"
+    wait_for_process_running cli-proxy-api 10 || {
+        error "cli-proxy-api did not come back after ONLY_BINARY update"
+        "$_STOP_FN" >/dev/null 2>&1 || true
+        restore_install_backup "$_ZEROCLAW_BACKUP" "$_ZEROCLAW_DST" "zeroclaw binary" || true
+        restore_install_backup "$_CLIPROXY_BACKUP" "$_CLIPROXY_DST" "cli-proxy-api binary" || true
+        "$_START_FN" >/dev/null 2>&1 || true
+        return 1
+    }
+    wait_for_port_listening "$_MGMT_PORT" 15 || {
+        error "Port $_MGMT_PORT did not come back after ONLY_BINARY update"
+        "$_STOP_FN" >/dev/null 2>&1 || true
+        restore_install_backup "$_ZEROCLAW_BACKUP" "$_ZEROCLAW_DST" "zeroclaw binary" || true
+        restore_install_backup "$_CLIPROXY_BACKUP" "$_CLIPROXY_DST" "cli-proxy-api binary" || true
+        "$_START_FN" >/dev/null 2>&1 || true
+        show_port_snapshot "$_MGMT_PORT" 3080
+        return 1
+    }
+    wait_for_process_running zeroclaw 10 || {
+        error "zeroclaw did not come back after ONLY_BINARY update"
+        "$_STOP_FN" >/dev/null 2>&1 || true
+        restore_install_backup "$_ZEROCLAW_BACKUP" "$_ZEROCLAW_DST" "zeroclaw binary" || true
+        restore_install_backup "$_CLIPROXY_BACKUP" "$_CLIPROXY_DST" "cli-proxy-api binary" || true
+        "$_START_FN" >/dev/null 2>&1 || true
+        return 1
+    }
+
+    cleanup_install_backup "$_ZEROCLAW_BACKUP"
+    cleanup_install_backup "$_CLIPROXY_BACKUP"
     return 0
 }
 
@@ -852,7 +1111,7 @@ set_cliproxy_auth_dir() {
 # Service Control
 # =======================================================
 
-SERVICE_PORTS="8317 8318 3080"
+SERVICE_PORTS="8317 3080"
 
 manual_service_script_candidates() {
     printf '%s\n' \
@@ -963,6 +1222,23 @@ wait_for_port_listening() {
         _WAIT=$((_WAIT + 1))
     done
     return 1
+}
+
+wait_for_process_running() {
+    _PROC="$1"
+    _TIMEOUT="${2:-10}"
+    _WAIT=0
+
+    while [ "$_WAIT" -lt "$_TIMEOUT" ]; do
+        if is_process_running "$_PROC"; then
+            debug "$_PROC detected after ${_WAIT}s"
+            return 0
+        fi
+        sleep 1
+        _WAIT=$((_WAIT + 1))
+    done
+
+    is_process_running "$_PROC"
 }
 
 wait_for_port_with_process_guard() {
@@ -1132,8 +1408,7 @@ force_release_service_runtime() {
     debug "Force killing remaining service processes..."
     kill_processes_by_name zeroclaw
     kill_processes_by_name cli-proxy-api
-    kill_processes_by_name socat
-    rm -f /var/run/cliproxyapi.pid /var/run/zeroclaw.pid /opt/var/run/cliproxyapi.pid /opt/var/run/zeroclaw.pid /opt/var/run/socat_bridge.pid 2>/dev/null
+    rm -f /var/run/cliproxyapi.pid /var/run/zeroclaw.pid /opt/var/run/cliproxyapi.pid /opt/var/run/zeroclaw.pid 2>/dev/null
 
     if command -v fuser >/dev/null 2>&1; then
         for _PORT in $SERVICE_PORTS; do
@@ -1248,16 +1523,6 @@ cleanup_existing_installation() {
     info "Teardown complete -- ready for fresh install"
 }
 
-detect_management_port() {
-    if is_port_listening 8317; then
-        echo "8317"
-    elif is_port_listening 8318; then
-        echo "8318"
-    else
-        echo "8317"
-    fi
-}
-
 verify_services() {
     ROUTER_IP="$1"
     [ -z "$ROUTER_IP" ] && ROUTER_IP=$(ip addr show br-lan 2>/dev/null | grep 'inet ' | awk '{print $2}' | cut -d'/' -f1)
@@ -1266,16 +1531,13 @@ verify_services() {
 
     ZC_COUNT=$(process_count zeroclaw)
     CP_COUNT=$(process_count cli-proxy-api)
-    SOCAT_COUNT=$(process_count socat)
+    debug "verify_services: zeroclaw=$ZC_COUNT cli-proxy-api=$CP_COUNT"
 
-    debug "verify_services: zeroclaw=$ZC_COUNT cli-proxy-api=$CP_COUNT socat=$SOCAT_COUNT"
-
+    MGMT_PORT=$(detect_management_port)
     # Check ports
-    PORT_8317=$(port_listener_line 8317)
-    PORT_8318=$(port_listener_line 8318)
+    PORT_MGMT=$(port_listener_line "$MGMT_PORT")
     PORT_3080=$(port_listener_line 3080)
-    debug "port 8317: $PORT_8317"
-    debug "port 8318: $PORT_8318"
+    debug "port $MGMT_PORT: $PORT_MGMT"
     debug "port 3080: $PORT_3080"
 
     echo ""
@@ -1286,18 +1548,14 @@ verify_services() {
     echo " Services:"
     echo "   ZeroClaw:    $ZC_COUNT process(es)"
     echo "   CLIProxyAPI: $CP_COUNT process(es)"
-    echo "   Socat:       $SOCAT_COUNT process(es) (optional)"
     echo ""
     echo " Ports:"
-    echo "   8317 (bridge): $(echo "$PORT_8317" | grep -q 'NOT' && echo '[WARN] optional bridge not listening' || echo '[OK] listening')"
-    echo "   8318 (api):   $(echo "$PORT_8318" | grep -q 'NOT' && echo '[FAIL] NOT listening' || echo '[OK] listening')"
+    echo "   ${MGMT_PORT} (api):   $(echo "$PORT_MGMT" | grep -q 'NOT' && echo '[FAIL] NOT listening' || echo '[OK] listening')"
     echo "   3080 (zc):    $(echo "$PORT_3080" | grep -q 'NOT' && echo '[FAIL] NOT listening' || echo '[OK] listening')"
     echo ""
-    MGMT_PORT=$(detect_management_port)
     echo " Web UI:"
     echo "   ZeroClaw:    http://${ROUTER_IP}:3080"
     echo "   CLIProxy:    http://${ROUTER_IP}:${MGMT_PORT}/management.html"
-    [ "$MGMT_PORT" = "8318" ] && echo "   Note:        optional bridge unavailable, using direct API port"
     echo ""
 
     echo " Telegram: Configured"
@@ -1305,12 +1563,12 @@ verify_services() {
 
     echo ""
     echo " Useful commands:"
-    if [ "$PLATFORM" = "procd" ]; then
+    if [ "$INSTALLER" = "procd" ]; then
         echo "   /etc/init.d/zeroclaw restart"
         echo "   /etc/init.d/cliproxyapi restart"
         echo "   logread | grep zeroclaw | tail -30"
         echo "   logread | grep cli-proxy | tail -30"
-    elif [ "$PLATFORM" = "manual" ]; then
+    elif [ "$INSTALLER" = "manual" ]; then
         echo "   ${INSTALL_BIN_DIR}/zeroclaw-service restart"
         echo "   ${INSTALL_BIN_DIR}/cliproxyapi-service restart"
         echo "   cat ${MANUAL_LOG_DIR:-/tmp}/zeroclaw.log"

@@ -71,5 +71,5 @@ COPY devices/${DEVICE}/config-system /etc/config/system
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-EXPOSE 22 3080 8317 8318
+EXPOSE 22 3080 8317
 ENTRYPOINT ["/entrypoint.sh"]

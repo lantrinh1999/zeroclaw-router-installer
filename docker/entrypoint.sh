@@ -13,6 +13,27 @@ TARGET=$(grep DISTRIB_TARGET /etc/kwrt_release /etc/openwrt_release 2>/dev/null 
 [ -z "$DISTRIB" ] && DISTRIB="Unknown OS"
 [ -z "$TARGET" ] && TARGET="unknown"
 
+start_enabled_services() {
+    echo ""
+    echo "--- Boot-enabled services ---"
+
+    FOUND=0
+    for script in /etc/rc.d/S*; do
+        [ -e "$script" ] || continue
+        FOUND=1
+        echo "  [>] $(basename "$script")"
+        if "$script" start; then
+            echo "  [ok] $(basename "$script")"
+        else
+            echo "  [!!] $(basename "$script") failed"
+        fi
+    done
+
+    if [ "$FOUND" = "0" ]; then
+        echo "  (no enabled services)"
+    fi
+}
+
 echo ""
 echo "=========================================="
 echo " $MODEL"
@@ -41,10 +62,13 @@ fi
 SSHD_PID=$!
 echo "[ok] sshd  (PID: $SSHD_PID)"
 
+# --- Simulate boot-enabled OpenWrt services ---
+start_enabled_services
+
 # --- Tool inventory ---
 echo ""
 echo "--- Tools ---"
-for tool in opkg ubus logread socat curl wget tar netstat pidof; do
+for tool in opkg ubus logread curl wget tar netstat pidof; do
     path=$(which $tool 2>/dev/null)
     [ -n "$path" ] && echo "  [+] $tool" || echo "  [-] $tool"
 done

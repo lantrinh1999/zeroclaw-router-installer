@@ -1,0 +1,91 @@
+# =======================================================
+# ZeroClaw Test Router - MIPS32r2 Dockerfile
+# =======================================================
+# Dockerfile riêng cho MIPS (Creality K1, etc.)
+# Dùng debian:bullseye vì Alpine không có MIPS variant.
+#
+# Yêu cầu QEMU:
+#   docker run --privileged --rm tonistiigi/binfmt --install mipsel
+#
+# Build:
+#   docker compose -f docker/devices/crealityk1/docker-compose.yml build
+# =======================================================
+
+ARG DEVICE=crealityk1
+FROM debian:bookworm-slim
+
+# ==========================
+# 1. Packages (barebones)
+# ==========================
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    openssh-server \
+    busybox \
+    procps \
+    iproute2 \
+    wget \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# ==========================
+# 2. SSH Server
+# ==========================
+RUN echo "root:root" | chpasswd \
+    && mkdir -p /var/run/sshd \
+    && sed -i 's/#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config \
+    && sed -i 's/#PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config \
+    && echo "PermitRootLogin yes" >> /etc/ssh/sshd_config
+
+# ==========================
+# 3. Buildroot Filesystem
+# ==========================
+# K1 is Buildroot Linux, NOT OpenWrt
+# KHÔNG tạo /etc/openwrt_release, /etc/kwrt_release, /etc/rc.common
+RUN mkdir -p /etc/config /overlay /opt /usr/bin /root
+
+# ==========================
+# 4. Entware Layout (/opt/)
+# ==========================
+# Simulate installed Entware
+RUN mkdir -p /opt/bin /opt/sbin /opt/lib /opt/etc/init.d /opt/var/log /opt/etc/config
+
+# ==========================
+# 5. Busybox ash symlink
+# ==========================
+# K1 uses busybox ash as default shell
+RUN ln -sf /bin/busybox /usr/bin/ash 2>/dev/null || true
+
+# ==========================
+# 6. Fake tools
+# ==========================
+# Shared fake tools (ubus for board info)
+COPY scripts/fake-ubus.sh /usr/bin/ubus
+COPY scripts/fake-logread.sh /usr/sbin/logread
+RUN chmod +x /usr/bin/ubus /usr/sbin/logread \
+    && touch /tmp/logread.log
+
+# Entware-specific fake opkg
+COPY scripts/fake-entware-opkg.sh /opt/bin/opkg
+RUN chmod +x /opt/bin/opkg
+
+# ==========================
+# 7. Device-specific configs
+# ==========================
+ARG DEVICE
+COPY devices/${DEVICE}/os-release       /etc/os-release
+COPY devices/${DEVICE}/buildroot-release /etc/buildroot-release
+COPY devices/${DEVICE}/ubus-board.json  /etc/device/ubus-board.json
+COPY devices/${DEVICE}/config-system    /etc/config/system
+
+# ==========================
+# 8. PATH setup
+# ==========================
+ENV PATH="/opt/sbin:/opt/bin:${PATH}"
+
+# ==========================
+# 9. Entrypoint
+# ==========================
+COPY entrypoint-mips.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+EXPOSE 22 3080 8317
+ENTRYPOINT ["/entrypoint.sh"]

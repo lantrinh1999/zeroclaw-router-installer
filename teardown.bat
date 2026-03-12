@@ -79,33 +79,60 @@ echo.
 
 REM Step 1: Detect platform
 echo [1/3] Detecting platform...
-ssh %SSH_BASE% root@%ROUTER_IP% "uname -m; (pidof procd >/dev/null 2>&1 && [ -d /etc/init.d ] && [ -d /etc/config ] && echo PLATFORM=procd || ([ -x /opt/bin/opkg ] && echo PLATFORM=entware || echo PLATFORM=unknown))" > %TEMP%\zc_platform.txt 2>&1
+ssh %SSH_BASE% root@%ROUTER_IP% "rm -rf %REMOTE_DIR%; mkdir -p %REMOTE_DIR%" >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] Cannot prepare remote staging
+    exit /b 1
+)
+
+tar cf - -C . common.sh | ssh %SSH_BASE% root@%ROUTER_IP% "tar xf - -C %REMOTE_DIR%"
+if errorlevel 1 (
+    echo [ERROR] Cannot upload detector
+    exit /b 1
+)
+
+ssh %SSH_BASE% root@%ROUTER_IP% "cd %REMOTE_DIR% && . ./common.sh >/dev/null 2>&1 && detect_platform >/dev/null 2>&1 && print_platform_exports" > %TEMP%\zc_platform.txt 2>&1
 if errorlevel 1 (
     echo [ERROR] SSH connection failed
     exit /b 1
 )
 
-set PLATFORM=unknown
-findstr /C:"PLATFORM=procd" %TEMP%\zc_platform.txt >nul 2>&1
-if not errorlevel 1 set PLATFORM=procd
+set ARCH=unknown
+set BIN_ARCH=unknown
+set INIT_TYPE=
+set EXEC_MODE=
+set INSTALLER=unknown
+set RESULT=
 
-findstr /C:"PLATFORM=entware" %TEMP%\zc_platform.txt >nul 2>&1
-if not errorlevel 1 set PLATFORM=entware
+for /f "usebackq tokens=1,* delims==" %%A in ("%TEMP%\zc_platform.txt") do (
+    if /i "%%A"=="ARCH" set ARCH=%%B
+    if /i "%%A"=="BIN_ARCH" set BIN_ARCH=%%B
+    if /i "%%A"=="INIT_TYPE" set INIT_TYPE=%%B
+    if /i "%%A"=="EXEC_MODE" set EXEC_MODE=%%B
+    if /i "%%A"=="INSTALLER" set INSTALLER=%%B
+    if /i "%%A"=="RESULT" set RESULT=%%B
+)
 
-del %TEMP%\zc_platform.txt
-echo   Platform: %PLATFORM%
+echo   Installer: %INSTALLER% (%ARCH%, init=%INIT_TYPE%, mode=%EXEC_MODE%)
 
-if "%PLATFORM%"=="unknown" (
-    echo [ERROR] Cannot detect platform
+if "%RESULT%"=="FAIL" (
+    del %TEMP%\zc_platform.txt >nul 2>&1
+    echo [ERROR] Device not compatible. Cannot uninstall safely.
     exit /b 1
 )
+if "%INSTALLER%"=="unknown" (
+    del %TEMP%\zc_platform.txt >nul 2>&1
+    echo [ERROR] Cannot detect installer
+    exit /b 1
+)
+del %TEMP%\zc_platform.txt >nul 2>&1
 
 REM Step 2: Upload
 echo.
 echo [2/3] Uploading uninstaller...
-ssh %SSH_BASE% root@%ROUTER_IP% "rm -rf %REMOTE_DIR%; mkdir -p %REMOTE_DIR%/platforms/%PLATFORM%"
+ssh %SSH_BASE% root@%ROUTER_IP% "rm -rf %REMOTE_DIR%; mkdir -p %REMOTE_DIR%/installers/%INSTALLER%"
 scp %SCP_BASE% common.sh root@%ROUTER_IP%:%REMOTE_DIR%/
-scp %SCP_BASE% platforms\%PLATFORM%\uninstall.sh root@%ROUTER_IP%:%REMOTE_DIR%/platforms/%PLATFORM%/
+scp %SCP_BASE% installers\%INSTALLER%\uninstall.sh root@%ROUTER_IP%:%REMOTE_DIR%/installers/%INSTALLER%/
 if errorlevel 1 (
     echo [ERROR] Upload failed
     exit /b 1
@@ -116,7 +143,7 @@ REM Step 3: Run
 echo.
 echo [3/3] Running uninstaller...
 echo -------------------------------------
-ssh %SSH_BASE% root@%ROUTER_IP% "cd %REMOTE_DIR% && sh platforms/%PLATFORM%/uninstall.sh"
+ssh %SSH_BASE% root@%ROUTER_IP% "cd %REMOTE_DIR% && sh installers/%INSTALLER%/uninstall.sh"
 echo -------------------------------------
 echo.
 
