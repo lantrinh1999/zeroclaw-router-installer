@@ -899,6 +899,7 @@ install_zeroclaw_config() {
 
     debug "Copying config.toml from $CONFIGS_DIR/zeroclaw/config.toml"
     if cp "$CONFIGS_DIR/zeroclaw/config.toml" /root/.zeroclaw/config.toml; then
+        chmod 600 /root/.zeroclaw/config.toml
         info "  config.toml installed"
     else
         error "  FAILED to copy config.toml"
