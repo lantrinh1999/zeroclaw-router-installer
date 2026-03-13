@@ -2,12 +2,12 @@
 
 ## Router Info
 
-- **Model:**
-- **OS:**
-- **Shell:**
-- **Package manager:**
-- **Init system:**
-- **Logs:**
+- **Model:** GL-iNet MT7986 (aarch64, 4 cores, 1GB RAM)
+- **OS:** OpenWrt with GL-iNet firmware
+- **Shell:** /bin/ash (BusyBox, NOT bash)
+- **Package manager:** opkg
+- **Init system:** procd
+- **Logs:** logread (không có journalctl)
 
 ## Useful Commands (Expanded)
 
@@ -32,6 +32,13 @@
 - `ping -c 3 1.1.1.1` / `ping -c 3 8.8.8.8`
 - `traceroute -n <ip>` — route path
 - `netstat -lnpt` hoặc `ss -lnpt` — ports (tùy có)
+
+## Network Services trên Router
+
+- **AdGuard Home:** port 3000 (DNS filtering)
+- **Cliproxy API:** port 8317 (LLM proxy)
+- **Router Agent Gateway:** port 3080 (web UI)
+- **Nginx (GL-iNet):** port 80/443
 
 ## Skills (Local)
 

@@ -113,3 +113,32 @@ Các case sau **bị policy chặn** khi chạy lệnh shell:
 - Thay `command 2> /tmp/err` bằng: `command` và đọc lỗi trực tiếp từ output.
 - Thay `$(command)` bằng: chạy `command` riêng, lấy kết quả rồi dùng lại thủ công.
 - Tránh here‑string / here‑doc nếu cần redirection.
+
+## Web Search & Research Rules (Mandatory)
+
+### Nguyên tắc: THÀ THỪA CÒN HƠN BỎ SÓT
+
+Khi cần tìm kiếm thông tin từ internet:
+
+1. **Tối thiểu 3 nguồn, tối đa 20 nguồn** — không bao giờ trả kết quả chỉ từ 1-2 nguồn
+2. **Tìm đa chiều:**
+   - Tìm bằng từ khóa chính (tiếng Việt + tiếng Anh)
+   - Tìm bằng từ khóa phụ / đồng nghĩa / liên quan
+   - Tìm bằng câu hỏi cụ thể khác nhau
+3. **Đọc nội dung thực** từ mỗi nguồn bằng web_fetch, không chỉ đọc snippet từ search
+4. **Cross-check:** thông tin xuất hiện ở nhiều nguồn = đáng tin hơn
+5. **Mâu thuẫn:** liệt kê CẢ HAI quan điểm, không tự chọn 1 bên
+6. **Trích nguồn:** ghi rõ URL cho từng thông tin
+
+### Chống chặn (web_search_tool bị block)
+
+- Đổi từ khóa: thêm năm, thêm site:reddit.com, thêm review
+- Dùng web_fetch đọc trực tiếp URL đã biết
+- Tìm tiếng Anh nếu tiếng Việt không có kết quả
+- Fallback: DuckDuckGo -> Jina (đã cấu hình sẵn)
+
+### Format kết quả
+
+- Gộp TẤT CẢ thông tin từ mọi nguồn, không lược bỏ
+- Cuối cùng liệt kê danh sách nguồn đã tham khảo
+- Ghi rõ: đã tìm X lần / đọc Y nguồn / dùng Z nguồn

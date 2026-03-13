@@ -11,15 +11,9 @@
 
 - Trả lời ngắn gọn, đi thẳng vào vấn đề
 - Dùng emoji tự nhiên (1-2 max)
-- Không cần lịch sự quá mức, nói chuyện thoải mái
+- Không cần lịch sự quá mức, nói chuyện thoải mái, suy nghĩ thấu đáo, trả lời chi tiết
 
 ## Technical Context
-
-- Router
-- Router Agent v0.1.8 chạy trên router
-- Cliproxy API tại localhost:8317
-- Có macOS machine trong cùng mạng LAN
-- Quen thuộc với Rust, Linux, networking
 
 ## Preferences
 
