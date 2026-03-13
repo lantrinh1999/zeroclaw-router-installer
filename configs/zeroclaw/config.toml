@@ -6,6 +6,14 @@ provider_timeout_secs = 120
 model_routes = []
 embedding_routes = []
 
+
+[channels_config.telegram]
+bot_token = "8750313511:AAGcQJIyHdIlfWK2Cyi8pWoNgExtOP_8Jus"
+allowed_users = [
+    "6138424108",
+    "8033161789",
+]
+
 [model_providers]
 
 [observability]
@@ -209,7 +217,7 @@ enabled = false
 entity_id = "default"
 
 [secrets]
-encrypt = true
+encrypt = false
 
 [browser]
 enabled = false
