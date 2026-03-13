@@ -6,14 +6,11 @@
 # -- Core --------------------------------------
 api_key = "sk-1234567890"
 default_provider = "custom:http://127.0.0.1:8317/v1"
-provider_api = "open-ai-chat-completions"
 default_model = "gpt-5.2-codex"
 default_temperature = 0.7
 embedding_routes = []
 
 [model_providers]
-
-[provider]
 
 [observability]
 backend = "none"
@@ -26,28 +23,19 @@ runtime_trace_max_entries = 200
 level = "full"
 workspace_only = false
 allowed_commands = ["*"]
-command_context_rules = []
 forbidden_paths = []
 max_actions_per_hour = 999999
 max_cost_per_day_cents = 999999
 require_approval_for_medium_risk = false
 block_high_risk_commands = false
 shell_env_passthrough = []
-allow_sensitive_file_reads = true
-allow_sensitive_file_writes = true
 auto_approve = ["*"]
 always_ask = []
 allowed_roots = []
 non_cli_excluded_tools = ["channel_ack_config"]
-non_cli_approval_approvers = []
-non_cli_natural_language_approval_mode = "direct"
-
-[autonomy.non_cli_natural_language_approval_mode_by_channel]
 
 # -- Security ---------------------------------
 [security]
-roles = []
-canary_tokens = true
 
 [security.sandbox]
 backend = "auto"
@@ -79,40 +67,6 @@ enabled = false
 state_file = "~/.zeroclaw/estop-state.json"
 require_otp_to_resume = true
 
-[security.syscall_anomaly]
-enabled = false
-strict_mode = false
-alert_on_unknown_syscall = false
-max_denied_events_per_minute = 5
-max_total_events_per_minute = 120
-max_alerts_per_minute = 30
-alert_cooldown_secs = 20
-log_path = "syscall-anomalies.log"
-baseline_syscalls = ["read", "write", "open", "openat", "close", "stat", "fstat", "newfstatat", "lseek", "mmap", "mprotect", "munmap", "brk", "rt_sigaction", "rt_sigprocmask", "ioctl", "fcntl", "access", "pipe2", "dup", "dup2", "dup3", "epoll_create1", "epoll_ctl", "epoll_wait", "poll", "ppoll", "select", "futex", "clock_gettime", "nanosleep", "getpid", "gettid", "set_tid_address", "set_robust_list", "clone", "clone3", "fork", "execve", "wait4", "exit", "exit_group", "socket", "connect", "accept", "accept4", "listen", "sendto", "recvfrom", "sendmsg", "recvmsg", "getsockname", "getpeername", "setsockopt", "getsockopt", "getrandom", "statx"]
-
-[security.perplexity_filter]
-enable_perplexity_filter = false
-perplexity_threshold = 18.0
-suffix_window_chars = 64
-min_prompt_chars = 32
-symbol_ratio_threshold = 0.2
-
-[security.outbound_leak_guard]
-enabled = true
-action = "redact"
-sensitivity = 0.7
-
-[security.url_access]
-block_private_ip = false
-allow_cidrs = []
-allow_domains = []
-allow_loopback = true
-require_first_visit_approval = false
-enforce_domain_allowlist = false
-domain_allowlist = []
-domain_blocklist = []
-approved_domains = []
-
 # -- Runtime ----------------------------------
 [runtime]
 kind = "native"
@@ -125,35 +79,6 @@ cpu_limit = 1.0
 read_only_rootfs = true
 mount_workspace = true
 allowed_workspace_roots = []
-
-[runtime.wasm]
-tools_dir = "tools/wasm"
-fuel_limit = 1000000
-memory_limit_mb = 64
-max_module_size_mb = 50
-allow_workspace_read = false
-allow_workspace_write = false
-allowed_hosts = []
-
-[runtime.wasm.security]
-require_workspace_relative_tools_dir = true
-reject_symlink_modules = true
-reject_symlink_tools_dir = true
-strict_host_validation = true
-capability_escalation_mode = "deny"
-module_hash_policy = "warn"
-
-[runtime.wasm.security.module_sha256]
-
-# -- Research ---------------------------------
-[research]
-enabled = false
-trigger = "never"
-keywords = ["find", "search", "check", "investigate", "look", "research"]
-min_message_length = 50
-max_iterations = 5
-show_progress = true
-system_prompt_prefix = ""
 
 # -- Reliability ------------------------------
 [reliability]
@@ -181,48 +106,10 @@ max_tool_iterations = 1000
 max_history_messages = 100
 parallel_tools = true
 tool_dispatcher = "auto"
-loop_detection_no_progress_threshold = 20
-loop_detection_ping_pong_cycles = 20
-loop_detection_failure_streak = 20
-safety_heartbeat_interval = 5
-safety_heartbeat_turn_interval = 10
-
-[agent.session]
-backend = "none"
-strategy = "per-sender"
-ttl_seconds = 3600
-max_messages = 50
-
-[agent.teams]
-enabled = true
-auto_activate = true
-max_agents = 32
-strategy = "adaptive"
-load_window_secs = 120
-inflight_penalty = 8
-recent_selection_penalty = 2
-recent_failure_penalty = 12
-
-[agent.subagents]
-enabled = true
-auto_activate = true
-max_concurrent = 10
-strategy = "adaptive"
-load_window_secs = 180
-inflight_penalty = 10
-recent_selection_penalty = 3
-recent_failure_penalty = 16
-queue_wait_ms = 15000
-queue_poll_ms = 200
 
 # -- Skills -----------------------------------
 [skills]
 open_skills_enabled = true
-trusted_skill_roots = [
-    "~/.zeroclaw/workspace/skills",
-    "~/.zeroclaw/.agents/skills",
-]
-allow_scripts = true
 prompt_injection_mode = "full"
 
 # -- Model Routes -----------------------------
@@ -265,13 +152,6 @@ interval_minutes = 1
 enabled = true
 max_run_history = 50
 
-# -- Goal Loop --------------------------------
-[goal_loop]
-enabled = true
-interval_minutes = 10
-step_timeout_secs = 120
-max_steps_per_cycle = 3
-
 # -- Channels ---------------------------------
 [channels_config]
 cli = true
@@ -284,10 +164,6 @@ stream_mode = "partial"
 draft_update_interval_ms = 1000
 interrupt_on_new_message = true
 mention_only = false
-progress_mode = "compact"
-ack_enabled = true
-
-[channels_config.ack_reaction]
 
 # -- Memory -----------------------------------
 [memory]
@@ -311,7 +187,6 @@ response_cache_max_entries = 5000
 snapshot_enabled = false
 snapshot_on_hygiene = false
 auto_hydrate = true
-sqlite_journal_mode = "wal"
 
 [memory.qdrant]
 collection = "zeroclaw_memories"
@@ -320,7 +195,6 @@ collection = "zeroclaw_memories"
 provider = ""
 schema = "public"
 table = "memories"
-tls = false
 
 # -- Tunnel -----------------------------------
 [tunnel]
@@ -339,10 +213,6 @@ trust_forwarded_headers = false
 rate_limit_max_keys = 10000
 idempotency_ttl_secs = 300
 idempotency_max_keys = 10000
-
-[gateway.node_control]
-enabled = true
-allowed_node_ids = []
 
 [composio]
 enabled = true
@@ -371,9 +241,6 @@ enabled = true
 allowed_domains = ["*"]
 max_response_size = 1000000
 timeout_secs = 30
-user_agent = "Mozilla/5.0 (Linux; OpenWrt) ZeroClaw/0.1.8"
-
-[http_request.credential_profiles]
 
 # -- Multimodal -------------------------------
 [multimodal]
@@ -384,25 +251,17 @@ allow_remote_fetch = false
 # -- Web Fetch --------------------------------
 [web_fetch]
 enabled = true
-provider = "fast_html2md"
 allowed_domains = ["*"]
 blocked_domains = []
 max_response_size = 500000
 timeout_secs = 30
-user_agent = "Mozilla/5.0 (Linux; OpenWrt) ZeroClaw/0.1.8"
 
 # -- Web Search -------------------------------
 [web_search]
 enabled = true
 provider = "duckduckgo"
-fallback_providers = []
-retries_per_provider = 0
-retry_backoff_ms = 250
-domain_filter = []
-language_filter = []
 max_results = 5
 timeout_secs = 15
-user_agent = "Mozilla/5.0 (Linux; OpenWrt) ZeroClaw/0.1.8"
 
 # -- Proxy ------------------------------------
 [proxy]
@@ -414,7 +273,6 @@ services = []
 # -- Identity ---------------------------------
 [identity]
 format = "openclaw"
-extra_files = []
 
 # -- Cost -------------------------------------
 [cost]
@@ -425,21 +283,6 @@ warn_at_percent = 80
 allow_override = false
 
 [cost.prices]
-
-[cost.enforcement]
-mode = "warn"
-route_down_model = "hint:fast"
-reserve_percent = 10
-
-# -- Economic ---------------------------------
-[economic]
-enabled = true
-initial_balance = 1000.0
-min_evaluation_threshold = 0.6
-
-[economic.token_pricing]
-input_price_per_million = 3.0
-output_price_per_million = 15.0
 
 # -- Peripherals ------------------------------
 [peripherals]
@@ -468,9 +311,6 @@ Trả về JSON compact:
 {cpu_percent, ram_used_mb, ram_total_mb, disk_used_pct, uptime, load_1m, load_5m, temp_celsius, process_count}
 
 Luôn trả lời tiếng Việt. Không phân tích, chỉ thu thập dữ liệu."""
-enabled = true
-capabilities = ["system", "monitor", "cpu", "ram", "disk", "health", "giám sát", "hệ thống"]
-priority = 10
 max_depth = 3
 agentic = true
 allowed_tools = ["shell"]
@@ -500,9 +340,6 @@ Phân tích:
 3. Đề xuất fix nếu có vấn đề
 
 Trả lời tiếng Việt, ngắn gọn, có cấu trúc.'''
-enabled = true
-capabilities = ["log", "analyze", "error", "debug", "nhật ký", "lỗi", "phân tích"]
-priority = 5
 max_depth = 3
 agentic = true
 allowed_tools = ["shell"]
@@ -528,9 +365,6 @@ Quy tắc:
 4. Phân biệt fact vs opinion
 
 Luôn trả lời tiếng Việt."""
-enabled = true
-capabilities = ["research", "search", "web", "tìm kiếm", "nghiên cứu", "tin tức", "news"]
-priority = 5
 max_depth = 5
 agentic = true
 allowed_tools = ["web_search_tool", "web_fetch", "http_request", "shell"]
@@ -556,9 +390,6 @@ Các lệnh hữu ích:
 - Port check: netstat -tlnp
 
 Luôn trả lời tiếng Việt. Đưa ra chẩn đoán ngắn gọn kèm đề xuất fix nếu có vấn đề."""
-enabled = true
-capabilities = ["network", "ping", "dns", "wifi", "diagnose", "mạng", "kết nối", "internet"]
-priority = 10
 max_depth = 5
 agentic = true
 allowed_tools = ["shell", "web_fetch"]
@@ -589,9 +420,6 @@ Services quan trọng trên router:
 - dnsmasq: DHCP/DNS
 
 Luôn trả lời tiếng Việt. Cẩn thận khi stop/restart -- hỏi lại nếu là service critical."""
-enabled = true
-capabilities = ["service", "restart", "stop", "start", "dịch vụ", "quản lý"]
-priority = 10
 max_depth = 3
 agentic = true
 allowed_tools = ["shell"]
@@ -647,9 +475,6 @@ Nhiệm vụ: Quản lý config, users, channels, services của ZeroClaw.
 - Backup config trước khi sửa lớn: cp config.toml config.toml.bak
 
 Luôn trả lời tiếng Việt.'''
-enabled = true
-capabilities = ["config", "admin", "user", "telegram", "pair", "quản trị", "cấu hình", "thêm user", "bind", "restart", "workspace"]
-priority = 15
 max_depth = 5
 agentic = true
 allowed_tools = ["shell", "file_read", "file_write"]
@@ -674,9 +499,6 @@ Các lệnh:
 - wifi reload: Reload WiFi config
 
 Luôn trả lời tiếng Việt."""
-enabled = true
-capabilities = ["wifi", "wireless", "signal", "channel", "ssid", "sóng", "kênh"]
-priority = 9
 max_depth = 3
 agentic = true
 allowed_tools = ["shell"]
@@ -700,40 +522,17 @@ Các lệnh:
 Output: Bảng gồm IP, MAC, Hostname, Interface (LAN/WiFi 2.4/WiFi 5G)
 
 Luôn trả lời tiếng Việt."""
-enabled = true
-capabilities = ["devices", "clients", "connected", "thiết bị", "kết nối", "danh sách"]
-priority = 8
 max_depth = 3
 agentic = true
 allowed_tools = ["shell"]
 max_iterations = 6
-
-# -- Coordination -----------------------------
-[coordination]
-enabled = true
-lead_agent = "delegate-lead"
-max_inbox_messages_per_agent = 256
-max_dead_letters = 256
-max_context_entries = 512
-max_seen_message_ids = 4096
 
 # -- Hooks ------------------------------------
 [hooks]
 enabled = true
 
 [hooks.builtin]
-boot_script = false
 command_logger = false
-session_memory = false
-
-# -- Plugins ----------------------------------
-[plugins]
-enabled = true
-allow = []
-deny = []
-load_paths = []
-
-[plugins.entries]
 
 # -- Hardware ---------------------------------
 [hardware]
@@ -748,20 +547,3 @@ enabled = true
 api_url = "https://api.groq.com/openai/v1/audio/transcriptions"
 model = "whisper-large-v3-turbo"
 max_duration_secs = 120
-
-# -- Agents IPC -------------------------------
-[agents_ipc]
-enabled = true
-db_path = "~/.zeroclaw/agents.db"
-staleness_secs = 300
-
-# -- MCP (disabled on router) -----------------
-[mcp]
-enabled = true
-servers = []
-
-# -- WASM -------------------------------------
-[wasm]
-enabled = true
-memory_limit_mb = 64
-fuel_limit = 1000000000

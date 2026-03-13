@@ -112,7 +112,6 @@ detect_arch() {
     ARCH=$(uname -m)
     case "$ARCH" in
         aarch64|arm64)  BIN_ARCH="aarch64" ;;
-        mips|mipsel|mips64|mips64el)  BIN_ARCH="mips32r2" ;;
         *)              BIN_ARCH="unknown" ;;
     esac
     debug "detect_arch: ARCH=$ARCH, BIN_ARCH=$BIN_ARCH"

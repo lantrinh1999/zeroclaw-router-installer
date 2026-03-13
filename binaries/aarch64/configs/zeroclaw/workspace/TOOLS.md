@@ -2,12 +2,12 @@
 
 ## Router Info
 
-- **Model:** GL-iNet MT7986 (aarch64, 4 cores, 1GB RAM)
-- **OS:** OpenWrt with GL-iNet firmware
-- **Shell:** /bin/ash (BusyBox, NOT bash)
-- **Package manager:** opkg
-- **Init system:** procd
-- **Logs:** logread (không có journalctl)
+- **Model:**
+- **OS:**
+- **Shell:**
+- **Package manager:**
+- **Init system:**
+- **Logs:**
 
 ## Useful Commands (Expanded)
 
@@ -33,13 +33,6 @@
 - `traceroute -n <ip>` — route path
 - `netstat -lnpt` hoặc `ss -lnpt` — ports (tùy có)
 
-## Network Services trên Router
-
-- **AdGuard Home:** port 3000 (DNS filtering)
-- **Cliproxy API:** port 8317 (LLM proxy)
-- **Router Agent Gateway:** port 3080 (web UI)
-- **Nginx (GL-iNet):** port 80/443
-
 ## Skills (Local)
 
 - `skills/openwrt-service-health` — kiểm tra health dịch vụ (zeroclaw/cliproxyapi/nginx/dnsmasq/AdGuard)
@@ -50,10 +43,19 @@
 - `skills/openwrt-status-report` — báo cáo trạng thái router (1 lệnh)
 - `skills/lynx-browser` — đọc web bằng Lynx (router-friendly)
 
-## Caveats
+## Policy Constraints (Observed)
 
-- Không có bash, dùng ash — syntax khác (không có `[[ ]]`, dùng `[ ]`)
-- Không có systemctl, dùng /etc/init.d/\*
-- BusyBox utilities — flags có thể khác GNU coreutils
-- `curl` có sẵn nhưng là bản minimal
-- Không có `python3`, `node`, `docker`
+Các case **bị policy chặn** khi chạy lệnh shell:
+
+- `>` (redirection)
+- `>>` (append)
+- `2>` (stderr redirection)
+- `$(...)` (command substitution)
+
+**OK:** `|`, `&&`, `||`, `(...)`.
+
+### Thay thế an toàn
+
+- Không dùng redirection; in output trực tiếp ra console.
+- Nếu cần giới hạn log, dùng `logread -e <tag> -l <n>`.
+- Với `$(...)`, chạy lệnh riêng rồi dùng kết quả thủ công.

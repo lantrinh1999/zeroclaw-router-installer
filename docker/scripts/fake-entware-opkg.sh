@@ -4,7 +4,7 @@
 
 case "$1" in
     update)
-        echo "Downloading http://bin.entware.net/mipselsf-k3.4/Packages.gz"
+        echo "Downloading http://bin.entware.net/aarch64-k3.10/Packages.gz"
         echo "Updated list of available packages in /opt/var/opkg-lists/entware"
         ;;
     install)

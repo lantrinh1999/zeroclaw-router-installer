@@ -2,7 +2,7 @@
 # =======================================================
 # ZeroClaw + CLIProxyAPI Installer for Entware/Buildroot
 # =======================================================
-# For: MIPS32r2 (Creality K1, etc.) and other non-OpenWrt Linux
+# For: non-OpenWrt Linux with Entware support
 # Requires: Entware (auto-installed if missing), /opt/ mountpoint
 # Usage: sh install.sh (run on device)
 
@@ -130,14 +130,6 @@ if [ "$ENTWARE_INSTALLED" = "0" ]; then
         # Determine entware architecture
         ENTWARE_ARCH=""
         case "$ARCH" in
-            mips|mipsel)
-                # Check endianness
-                if [ "$(echo -n I | od -to2 | head -1 | awk '{print $2}')" = "000111" ]; then
-                    ENTWARE_ARCH="mipselsf-k3.4"
-                else
-                    ENTWARE_ARCH="mipssf-k3.4"
-                fi
-                ;;
             aarch64)
                 ENTWARE_ARCH="aarch64-k3.10"
                 ;;

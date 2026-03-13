@@ -15,7 +15,7 @@
 
 ## Technical Context
 
-- Router OpenWrt (aarch64) tại <router-ip>
+- Router
 - Router Agent v0.1.8 chạy trên router
 - Cliproxy API tại localhost:8317
 - Có macOS machine trong cùng mạng LAN

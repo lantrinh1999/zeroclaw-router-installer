@@ -4,7 +4,7 @@
 # Example: sh setup.sh 192.168.81.1
 #          sh setup.sh localhost -p 2222
 #          sh setup.sh 192.168.81.1 --only-binary
-# Supports: aarch64/OpenWrt, MIPS32r2/Entware
+# Supports: aarch64/OpenWrt
 
 # Parse arguments: setup.sh [ip] [-p port] [--only-binary]
 ROUTER_IP="192.168.81.1"

@@ -136,7 +136,6 @@ INSTALLER="procd"  # Force installer strategy for this installer
 
 if [ "$BIN_ARCH" != "aarch64" ]; then
     error "This installer is for aarch64 procd-based systems only. Detected: $ARCH"
-    error "For MIPS/Entware devices, use installers/entware/install.sh"
     exit 1
 fi
 
