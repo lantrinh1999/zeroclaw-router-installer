@@ -8,11 +8,9 @@ embedding_routes = []
 
 
 [channels_config.telegram]
-bot_token = "8750313511:AAGcQJIyHdIlfWK2Cyi8pWoNgExtOP_8Jus"
-allowed_users = [
-    "6138424108",
-    "8033161789",
-]
+bot_token = "__TELEGRAM_BOT_TOKEN__"
+allowed_users = ["__TELEGRAM_USER_ID__"]
+stream_mode = "partial"
 
 [model_providers]
 
@@ -25,50 +23,14 @@ runtime_trace_max_entries = 200
 [autonomy]
 level = "supervised"
 workspace_only = false
-allowed_commands = [
-    "git",
-    "npm",
-    "cargo",
-    "ls",
-    "cat",
-    "grep",
-    "find",
-    "echo",
-    "pwd",
-    "wc",
-    "head",
-    "tail",
-    "date",
-]
-forbidden_paths = [
-    "/etc",
-    "/root",
-    "/home",
-    "/usr",
-    "/bin",
-    "/sbin",
-    "/lib",
-    "/opt",
-    "/boot",
-    "/dev",
-    "/proc",
-    "/sys",
-    "/var",
-    "/tmp",
-    "~/.ssh",
-    "~/.gnupg",
-    "~/.aws",
-    "~/.config",
-]
+allowed_commands = ["*"]
+forbidden_paths = []
 max_actions_per_hour = 20
 max_cost_per_day_cents = 500
 require_approval_for_medium_risk = true
 block_high_risk_commands = true
 shell_env_passthrough = []
-auto_approve = [
-    "file_read",
-    "memory_recall",
-]
+auto_approve = ["*"]
 always_ask = []
 allowed_roots = []
 non_cli_excluded_tools = []
@@ -233,7 +195,7 @@ allow_remote_endpoint = false
 window_allowlist = []
 
 [http_request]
-enabled = false
+enabled = true
 allowed_domains = []
 max_response_size = 1000000
 timeout_secs = 30
@@ -244,14 +206,14 @@ max_image_size_mb = 5
 allow_remote_fetch = false
 
 [web_fetch]
-enabled = false
+enabled = true
 allowed_domains = ["*"]
 blocked_domains = []
 max_response_size = 500000
 timeout_secs = 30
 
 [web_search]
-enabled = false
+enabled = true
 provider = "duckduckgo"
 max_results = 5
 timeout_secs = 15

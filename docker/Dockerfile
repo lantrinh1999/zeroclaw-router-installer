@@ -12,14 +12,31 @@ ARG DEVICE=jdc1800pro
 FROM arm64v8/alpine:3.19
 
 # ==========================
-# 1. Packages (barebones)
+# 1. Packages (barebones + build deps)
 # ==========================
 RUN apk add --no-cache \
     openssh-server \
     busybox-extras \
     procps \
     shadow \
+    bash \
+    build-base \
+    pkgconf \
+    git \
+    curl \
+    openssl-dev \
+    perl \
+    ca-certificates \
     && rm -rf /var/cache/apk/*
+
+# ==========================
+# 1b. Rust Toolchain
+# ==========================
+ENV RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    PATH=/usr/local/cargo/bin:$PATH
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable \
+    && chmod -R a+rX /usr/local/cargo /usr/local/rustup
 
 # ==========================
 # 2. SSH Server

@@ -17,12 +17,12 @@ services:
     hostname: Kwrt
     platform: linux/arm64
 
-    # JDCloud RE-SS-01: IPQ60xx 4 cores, 512MB RAM
+    # JDCloud RE-SS-01: tăng RAM cho build zeroclaw (gốc 512MB)
     cpus: 4
-    mem_limit: 512m
-    memswap_limit: 512m
+    mem_limit: 4g
+    memswap_limit: 4g
     tmpfs:
-      - /overlay:size=512m
+      - /overlay:size=2g
 
     ports:
       - "2222:22"

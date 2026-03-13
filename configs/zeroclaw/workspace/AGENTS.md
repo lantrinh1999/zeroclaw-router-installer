@@ -128,13 +128,6 @@ Khi cần tìm kiếm thông tin từ internet:
 5. **Mâu thuẫn:** liệt kê CẢ HAI quan điểm, không tự chọn 1 bên
 6. **Trích nguồn:** ghi rõ URL cho từng thông tin
 
-### Chống chặn (web_search_tool bị block)
-
-- Đổi từ khóa: thêm năm, thêm site:reddit.com, thêm review
-- Dùng web_fetch đọc trực tiếp URL đã biết
-- Tìm tiếng Anh nếu tiếng Việt không có kết quả
-- Fallback: DuckDuckGo -> Jina (đã cấu hình sẵn)
-
 ### Format kết quả
 
 - Gộp TẤT CẢ thông tin từ mọi nguồn, không lược bỏ

@@ -6,6 +6,12 @@ provider_timeout_secs = 120
 model_routes = []
 embedding_routes = []
 
+
+[channels_config.telegram]
+bot_token = "__TELEGRAM_BOT_TOKEN__"
+allowed_users = ["__TELEGRAM_USER_ID__"]
+stream_mode = "partial"
+
 [model_providers]
 
 [observability]
@@ -17,25 +23,24 @@ runtime_trace_max_entries = 200
 [autonomy]
 level = "supervised"
 workspace_only = false
-allowed_commands = []
+allowed_commands = ["*"]
 forbidden_paths = []
-max_actions_per_hour = 100
-max_cost_per_day_cents = 1000
+max_actions_per_hour = 20
+max_cost_per_day_cents = 500
 require_approval_for_medium_risk = true
-block_high_risk_commands = false
+block_high_risk_commands = true
 shell_env_passthrough = []
 auto_approve = ["*"]
 always_ask = []
 allowed_roots = []
 non_cli_excluded_tools = []
 
-
 [security.sandbox]
 backend = "auto"
 firejail_args = []
 
 [security.resources]
-max_memory_mb = 256
+max_memory_mb = 512
 max_cpu_time_seconds = 60
 max_subprocesses = 10
 memory_monitoring = true
@@ -43,7 +48,7 @@ memory_monitoring = true
 [security.audit]
 enabled = true
 log_path = "audit.log"
-max_size_mb = 20
+max_size_mb = 100
 sign_events = false
 
 [security.otp]
@@ -174,7 +179,7 @@ enabled = false
 entity_id = "default"
 
 [secrets]
-encrypt = true
+encrypt = false
 
 [browser]
 enabled = false
@@ -190,7 +195,7 @@ allow_remote_endpoint = false
 window_allowlist = []
 
 [http_request]
-enabled = false
+enabled = true
 allowed_domains = []
 max_response_size = 1000000
 timeout_secs = 30
@@ -229,13 +234,9 @@ monthly_limit_usd = 100.0
 warn_at_percent = 80
 allow_override = false
 
-[cost.prices."anthropic/claude-opus-4-20250514"]
-input = 15.0
-output = 75.0
-
-[cost.prices."openai/gpt-4o"]
-input = 5.0
-output = 15.0
+[cost.prices."openai/gpt-4o-mini"]
+input = 0.15
+output = 0.6
 
 [cost.prices."anthropic/claude-sonnet-4-20250514"]
 input = 3.0
@@ -245,25 +246,29 @@ output = 15.0
 input = 0.1
 output = 0.4
 
-[cost.prices."google/gemini-1.5-pro"]
-input = 1.25
-output = 5.0
+[cost.prices."anthropic/claude-opus-4-20250514"]
+input = 15.0
+output = 75.0
+
+[cost.prices."anthropic/claude-3.5-sonnet"]
+input = 3.0
+output = 15.0
 
 [cost.prices."anthropic/claude-3-haiku"]
 input = 0.25
 output = 1.25
 
-[cost.prices."anthropic/claude-3.5-sonnet"]
-input = 3.0
+[cost.prices."openai/gpt-4o"]
+input = 5.0
 output = 15.0
 
 [cost.prices."openai/o1-preview"]
 input = 15.0
 output = 60.0
 
-[cost.prices."openai/gpt-4o-mini"]
-input = 0.15
-output = 0.6
+[cost.prices."google/gemini-1.5-pro"]
+input = 1.25
+output = 5.0
 
 [peripherals]
 enabled = false
