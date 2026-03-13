@@ -1,13 +1,9 @@
-# ---------------------------------------------
-# ZeroClaw -- Router OpenWrt Config
-# Provider: CLIProxyAPI @ localhost:8317
-# ---------------------------------------------
-
-# -- Core --------------------------------------
 api_key = "sk-1234567890"
 default_provider = "custom:http://127.0.0.1:8317/v1"
 default_model = "gpt-5.2-codex"
 default_temperature = 0.7
+provider_timeout_secs = 120
+model_routes = []
 embedding_routes = []
 
 [model_providers]
@@ -18,31 +14,28 @@ runtime_trace_mode = "none"
 runtime_trace_path = "state/runtime-trace.jsonl"
 runtime_trace_max_entries = 200
 
-# -- Autonomy (FULL) -------------------------
 [autonomy]
-level = "full"
+level = "supervised"
 workspace_only = false
-allowed_commands = ["*"]
+allowed_commands = []
 forbidden_paths = []
-max_actions_per_hour = 999999
-max_cost_per_day_cents = 999999
-require_approval_for_medium_risk = false
+max_actions_per_hour = 100
+max_cost_per_day_cents = 1000
+require_approval_for_medium_risk = true
 block_high_risk_commands = false
 shell_env_passthrough = []
 auto_approve = ["*"]
 always_ask = []
 allowed_roots = []
-non_cli_excluded_tools = ["channel_ack_config"]
+non_cli_excluded_tools = []
 
-# -- Security ---------------------------------
-[security]
 
 [security.sandbox]
 backend = "auto"
 firejail_args = []
 
 [security.resources]
-max_memory_mb = 512
+max_memory_mb = 256
 max_cpu_time_seconds = 60
 max_subprocesses = 10
 memory_monitoring = true
@@ -50,7 +43,7 @@ memory_monitoring = true
 [security.audit]
 enabled = true
 log_path = "audit.log"
-max_size_mb = 100
+max_size_mb = 20
 sign_events = false
 
 [security.otp]
@@ -58,7 +51,13 @@ enabled = false
 method = "totp"
 token_ttl_secs = 30
 cache_valid_secs = 300
-gated_actions = ["shell", "file_write", "browser_open", "browser", "memory_forget"]
+gated_actions = [
+    "shell",
+    "file_write",
+    "browser_open",
+    "browser",
+    "memory_forget",
+]
 gated_domains = []
 gated_domain_categories = []
 
@@ -67,7 +66,6 @@ enabled = false
 state_file = "~/.zeroclaw/estop-state.json"
 require_otp_to_resume = true
 
-# -- Runtime ----------------------------------
 [runtime]
 kind = "native"
 
@@ -80,7 +78,6 @@ read_only_rootfs = true
 mount_workspace = true
 allowed_workspace_roots = []
 
-# -- Reliability ------------------------------
 [reliability]
 provider_retries = 2
 provider_backoff_ms = 500
@@ -93,79 +90,39 @@ scheduler_retries = 2
 
 [reliability.model_fallbacks]
 
-# -- Scheduler --------------------------------
 [scheduler]
 enabled = true
 max_tasks = 64
 max_concurrent = 4
 
-# -- Agent ------------------------------------
 [agent]
-compact_context = true
-max_tool_iterations = 1000
-max_history_messages = 100
-parallel_tools = true
+compact_context = false
+max_tool_iterations = 10
+max_history_messages = 50
+parallel_tools = false
 tool_dispatcher = "auto"
+tool_call_dedup_exempt = []
 
-# -- Skills -----------------------------------
 [skills]
-open_skills_enabled = true
+open_skills_enabled = false
 prompt_injection_mode = "full"
 
-# -- Model Routes -----------------------------
-[[model_routes]]
-hint = "reasoning"
-provider = "custom:http://127.0.0.1:8317/v1"
-model = "gpt-5.2-codex"
-max_tokens = 16384
-
-[[model_routes]]
-hint = "thinking"
-provider = "custom:http://127.0.0.1:8317/v1"
-model = "gpt-5.2-codex"
-max_tokens = 16384
-
-[[model_routes]]
-hint = "code"
-provider = "custom:http://127.0.0.1:8317/v1"
-model = "gpt-5.2-codex"
-max_tokens = 16384
-
-[[model_routes]]
-hint = "fast"
-provider = "custom:http://127.0.0.1:8317/v1"
-model = "gpt-5.2-codex"
-max_tokens = 16384
-
-# -- Query Classification ---------------------
 [query_classification]
-enabled = true
+enabled = false
 rules = []
 
-# -- Heartbeat --------------------------------
 [heartbeat]
-enabled = true
-interval_minutes = 1
+enabled = false
+interval_minutes = 30
 
-# -- Cron -------------------------------------
 [cron]
 enabled = true
 max_run_history = 50
 
-# -- Channels ---------------------------------
 [channels_config]
 cli = true
-message_timeout_secs = 200
+message_timeout_secs = 300
 
-[channels_config.telegram]
-bot_token = "__TELEGRAM_BOT_TOKEN__"
-allowed_users = ["__TELEGRAM_USER_ID__"]
-stream_mode = "partial"
-draft_update_interval_ms = 1000
-interrupt_on_new_message = false
-mention_only = false
-
-# -- Memory -----------------------------------
 [memory]
 backend = "sqlite"
 auto_save = true
@@ -181,8 +138,8 @@ keyword_weight = 0.3
 min_relevance_score = 0.4
 embedding_cache_size = 10000
 chunk_max_tokens = 512
-response_cache_enabled = true
-response_cache_ttl_minutes = 5
+response_cache_enabled = false
+response_cache_ttl_minutes = 60
 response_cache_max_entries = 5000
 snapshot_enabled = false
 snapshot_on_hygiene = false
@@ -196,16 +153,14 @@ provider = ""
 schema = "public"
 table = "memories"
 
-# -- Tunnel -----------------------------------
 [tunnel]
 provider = "none"
 
-# -- Gateway ----------------------------------
 [gateway]
 port = 3080
 host = "0.0.0.0"
 require_pairing = true
-allow_public_bind = true
+allow_public_bind = false
 paired_tokens = []
 pair_rate_limit_per_minute = 10
 webhook_rate_limit_per_minute = 60
@@ -215,13 +170,12 @@ idempotency_ttl_secs = 300
 idempotency_max_keys = 10000
 
 [composio]
-enabled = true
+enabled = false
 entity_id = "default"
 
 [secrets]
 encrypt = true
 
-# -- Browser (disabled on router) -------------
 [browser]
 enabled = false
 allowed_domains = []
@@ -235,20 +189,17 @@ timeout_ms = 15000
 allow_remote_endpoint = false
 window_allowlist = []
 
-# -- HTTP Request -----------------------------
 [http_request]
-enabled = true
-allowed_domains = ["*"]
+enabled = false
+allowed_domains = []
 max_response_size = 1000000
 timeout_secs = 30
 
-# -- Multimodal -------------------------------
 [multimodal]
 max_images = 4
 max_image_size_mb = 5
 allow_remote_fetch = false
 
-# -- Web Fetch --------------------------------
 [web_fetch]
 enabled = true
 allowed_domains = ["*"]
@@ -256,294 +207,98 @@ blocked_domains = []
 max_response_size = 500000
 timeout_secs = 30
 
-# -- Web Search -------------------------------
 [web_search]
 enabled = true
 provider = "duckduckgo"
 max_results = 5
 timeout_secs = 15
 
-# -- Proxy ------------------------------------
 [proxy]
 enabled = false
 no_proxy = []
 scope = "zeroclaw"
 services = []
 
-# -- Identity ---------------------------------
 [identity]
 format = "openclaw"
 
-# -- Cost -------------------------------------
 [cost]
-enabled = true
+enabled = false
 daily_limit_usd = 10.0
 monthly_limit_usd = 100.0
 warn_at_percent = 80
 allow_override = false
 
-[cost.prices]
+[cost.prices."anthropic/claude-opus-4-20250514"]
+input = 15.0
+output = 75.0
 
-# -- Peripherals ------------------------------
+[cost.prices."openai/gpt-4o"]
+input = 5.0
+output = 15.0
+
+[cost.prices."anthropic/claude-sonnet-4-20250514"]
+input = 3.0
+output = 15.0
+
+[cost.prices."google/gemini-2.0-flash"]
+input = 0.1
+output = 0.4
+
+[cost.prices."google/gemini-1.5-pro"]
+input = 1.25
+output = 5.0
+
+[cost.prices."anthropic/claude-3-haiku"]
+input = 0.25
+output = 1.25
+
+[cost.prices."anthropic/claude-3.5-sonnet"]
+input = 3.0
+output = 15.0
+
+[cost.prices."openai/o1-preview"]
+input = 15.0
+output = 60.0
+
+[cost.prices."openai/gpt-4o-mini"]
+input = 0.15
+output = 0.6
+
 [peripherals]
-enabled = true
+enabled = false
 boards = []
 
-# -- Agents -----------------------------------
-[agents.system-monitor]
-provider = "custom:http://127.0.0.1:8317/v1"
-model = "gpt-5.2-codex"
-system_prompt = """
-Bạn là agent giám sát hệ thống router OpenWrt MT7986.
+[agents]
 
-Nhiệm vụ: Thu thập và báo cáo trạng thái hệ thống.
-
-Các lệnh cần dùng (shell ash, KHÔNG phải bash):
-- CPU/RAM: top -b -n1 | head -5
-- Memory: free -m
-- Disk: df -h /overlay
-- Uptime: uptime
-- Load: cat /proc/loadavg
-- Temperature: cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null
-- Processes: ps w | wc -l
-
-Trả về JSON compact:
-{cpu_percent, ram_used_mb, ram_total_mb, disk_used_pct, uptime, load_1m, load_5m, temp_celsius, process_count}
-
-Luôn trả lời tiếng Việt. Không phân tích, chỉ thu thập dữ liệu."""
-max_depth = 3
-agentic = true
-allowed_tools = ["shell"]
-max_iterations = 5
-
-[agents.log-analyzer]
-provider = "custom:http://127.0.0.1:8317/v1"
-model = "gpt-5.2-codex"
-system_prompt = '''
-Bạn là agent phân tích log trên router OpenWrt.
-
-Nhiệm vụ: Đọc, lọc, phân tích log hệ thống.
-
-Các lệnh:
-- System log: logread | tail -50
-- Kernel log: dmesg | tail -30
-- Filter by service: logread | grep <service>
-- Filter by level: logread | grep -i 'error\|warn\|crit'
-- ZeroClaw log: logread | grep zeroclaw | tail -30
-- Cliproxy log: logread | grep cli-proxy | tail -30
-- Auth/login: logread | grep -i 'auth\|login\|ssh'
-- Time range: logread | grep "Mar 12 03:"
-
-Phân tích:
-1. Tìm errors/warnings
-2. Phát hiện patterns bất thường
-3. Đề xuất fix nếu có vấn đề
-
-Trả lời tiếng Việt, ngắn gọn, có cấu trúc.'''
-max_depth = 3
-agentic = true
-allowed_tools = ["shell"]
-max_iterations = 8
-
-[agents.researcher]
-provider = "custom:http://127.0.0.1:8317/v1"
-model = "gpt-5.2-codex"
-system_prompt = """
-Bạn là agent nghiên cứu thông tin từ internet.
-
-Nhiệm vụ: Tìm kiếm, tổng hợp thông tin từ web.
-
-Công cụ:
-- web_search_tool: Tìm kiếm DuckDuckGo
-- web_fetch: Đọc nội dung trang web
-- http_request: Gọi API
-
-Quy tắc:
-1. Tìm kiếm đa nguồn, cross-check thông tin
-2. Trích dẫn nguồn
-3. Tổng hợp ngắn gọn, có cấu trúc
-4. Phân biệt fact vs opinion
-
-Luôn trả lời tiếng Việt."""
-max_depth = 5
-agentic = true
-allowed_tools = ["web_search_tool", "web_fetch", "http_request", "shell"]
-max_iterations = 10
-
-[agents.network-diag]
-provider = "custom:http://127.0.0.1:8317/v1"
-model = "gpt-5.2-codex"
-system_prompt = """
-Bạn là agent chẩn đoán mạng trên router OpenWrt.
-
-Nhiệm vụ: Kiểm tra kết nối mạng, DNS, WiFi, clients.
-
-Các lệnh hữu ích:
-- Ping: ping -c3 8.8.8.8
-- DNS: nslookup google.com
-- WiFi clients: iwinfo | grep -A20 ESSID
-- Connected devices: cat /tmp/dhcp.leases
-- Network interfaces: ip addr show
-- Routes: ip route show
-- Firewall: iptables -L -n | head -30
-- Bandwidth: cat /proc/net/dev
-- Port check: netstat -tlnp
-
-Luôn trả lời tiếng Việt. Đưa ra chẩn đoán ngắn gọn kèm đề xuất fix nếu có vấn đề."""
-max_depth = 5
-agentic = true
-allowed_tools = ["shell", "web_fetch"]
-max_iterations = 8
-
-[agents.service-manager]
-provider = "custom:http://127.0.0.1:8317/v1"
-model = "gpt-5.2-codex"
-system_prompt = """
-Bạn là agent quản lý services trên router OpenWrt.
-
-Nhiệm vụ: Kiểm tra, khởi động, dừng, restart các services.
-
-Các lệnh:
-- List services: ls /etc/init.d/
-- Status: /etc/init.d/<name> status
-- Start/Stop/Restart: /etc/init.d/<name> start|stop|restart
-- Enable/Disable auto-start: /etc/init.d/<name> enable|disable
-- Check auto-start: ls /etc/rc.d/ | grep <name>
-- Process list: ps w | grep <name>
-- Logs: logread | grep <name> | tail -20
-
-Services quan trọng trên router:
-- zeroclaw: AI agent (port 3080)
-- cliproxyapi: LLM proxy (port 8317)
-- AdGuard Home: DNS filter (port 3000)
-- nginx: web server (port 80/443)
-- dnsmasq: DHCP/DNS
-
-Luôn trả lời tiếng Việt. Cẩn thận khi stop/restart -- hỏi lại nếu là service critical."""
-max_depth = 3
-agentic = true
-allowed_tools = ["shell"]
-max_iterations = 6
-
-[agents.self-admin]
-provider = "custom:http://127.0.0.1:8317/v1"
-model = "gpt-5.2-codex"
-system_prompt = '''Bạn là agent quản trị ZeroClaw trên router OpenWrt.
-
-Nhiệm vụ: Quản lý config, users, channels, services của ZeroClaw.
-
-## Config
-- File: /root/.zeroclaw/config.toml (TOML format)
-- Đọc: cat /root/.zeroclaw/config.toml
-- Sửa: dùng sed -i hoặc ghi file mới
-- SAU KHI SỬA CONFIG LUÔN RESTART: /etc/init.d/zeroclaw stop; /etc/init.d/zeroclaw start
-
-## Telegram Users
-- allowed_users nằm trong [channels_config.telegram]
-- Thêm user: sửa allowed_users array trong config.toml, restart
-- Xem user bị reject: logread | grep "unauthorized user" | tail -10
-- Format: allowed_users = ["id1", "id2"]
-
-## Pairing (Web UI)
-- Xóa paired_tokens = [] trong config, restart -> lấy code từ log
-- Code: logread | grep "Pairing-Code" | tail -1
-- Không có lệnh "zeroclaw pair" trên v0.1.8
-
-## Workspace Files
-- /root/.zeroclaw/workspace/USER.md -- thông tin user
-- /root/.zeroclaw/workspace/MEMORY.md -- long-term memory
-- /root/.zeroclaw/workspace/IDENTITY.md -- identity
-- /root/.zeroclaw/workspace/TOOLS.md -- env notes
-- /root/.zeroclaw/workspace/SOUL.md -- behavior rules
-
-## Channels
-- zeroclaw channel list -- xem channels
-- zeroclaw channel bind-telegram <id> -- bind telegram user
-- Config reload tự động khi sửa file, nhưng một số thay đổi cần restart
-
-## Useful Commands
-- zeroclaw status -- xem trạng thái
-- zeroclaw doctor -- health check
-- zeroclaw memory list -- xem memories
-- zeroclaw config encrypt -- encrypt credentials
-- /etc/init.d/zeroclaw stop; /etc/init.d/zeroclaw start -- restart
-
-## QUAN TRỌNG
-- Shell là ash (BusyBox), KHÔNG PHẢI bash
-- Sau khi sửa config PHẢI restart service
-- Không dùng [[ ]], dùng [ ]
-- Backup config trước khi sửa lớn: cp config.toml config.toml.bak
-
-Luôn trả lời tiếng Việt.'''
-max_depth = 5
-agentic = true
-allowed_tools = ["shell", "file_read", "file_write"]
-max_iterations = 10
-
-[agents.wifi-ops]
-provider = "custom:http://127.0.0.1:8317/v1"
-model = "gpt-5.2-codex"
-system_prompt = """
-Bạn là agent quản lý WiFi trên router OpenWrt.
-
-Nhiệm vụ: Chẩn đoán, cấu hình, tối ưu WiFi.
-
-Các lệnh:
-- iwinfo: Xem tất cả WiFi interfaces
-- iwinfo ra0 info: Chi tiết 2.4GHz
-- iwinfo rax0 info: Chi tiết 5GHz
-- iwinfo ra0 assoclist: Clients trên 2.4GHz
-- iwinfo rax0 assoclist: Clients trên 5GHz
-- iwinfo ra0 scan: Scan WiFi 2.4GHz
-- uci show wireless: Xem cấu hình WiFi
-- wifi reload: Reload WiFi config
-
-Luôn trả lời tiếng Việt."""
-max_depth = 3
-agentic = true
-allowed_tools = ["shell"]
-max_iterations = 8
-
-[agents.connected-devices]
-provider = "custom:http://127.0.0.1:8317/v1"
-model = "gpt-5.2-codex"
-system_prompt = """
-Bạn là agent liệt kê thiết bị đang kết nối router.
-
-Nhiệm vụ: Xem danh sách thiết bị, IP, MAC, hostname.
-
-Các lệnh:
-- cat /tmp/dhcp.leases: DHCP leases (IP, MAC, hostname)
-- arp -a: ARP table
-- iwinfo ra0 assoclist: WiFi 2.4GHz clients
-- iwinfo rax0 assoclist: WiFi 5GHz clients
-- cat /proc/net/arp: Kernel ARP
-
-Output: Bảng gồm IP, MAC, Hostname, Interface (LAN/WiFi 2.4/WiFi 5G)
-
-Luôn trả lời tiếng Việt."""
-max_depth = 3
-agentic = true
-allowed_tools = ["shell"]
-max_iterations = 6
-
-# -- Hooks ------------------------------------
 [hooks]
 enabled = true
 
 [hooks.builtin]
 command_logger = false
 
-# -- Hardware ---------------------------------
+[hooks.builtin.webhook_audit]
+enabled = false
+url = ""
+tool_patterns = []
+include_args = false
+max_args_bytes = 4096
+
 [hardware]
-enabled = true
+enabled = false
 transport = "None"
 baud_rate = 115200
 workspace_datasheets = false
 
-# -- Transcription ----------------------------
 [transcription]
-enabled = true
+enabled = false
 api_url = "https://api.groq.com/openai/v1/audio/transcriptions"
 model = "whisper-large-v3-turbo"
 max_duration_secs = 120
+
+[tts]
+enabled = false
+default_provider = "openai"
+default_voice = "alloy"
+default_format = "mp3"
+max_text_length = 4096

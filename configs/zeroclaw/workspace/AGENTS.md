@@ -7,8 +7,6 @@ Before doing anything else:
 1. Read `SOUL.md` — this is who you are
 2. Read `USER.md` — this is who you're helping
 3. Read `TOOLS.md` — runtime environment, commands, caveats
-4. Use `memory_recall` for recent context (daily notes are on-demand)
-5. If in MAIN SESSION (direct chat): `MEMORY.md` is already injected
 
 Don't ask permission. Just do it.
 
