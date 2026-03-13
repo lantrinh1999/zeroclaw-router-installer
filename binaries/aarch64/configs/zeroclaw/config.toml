@@ -73,9 +73,6 @@ cache_valid_secs = 300
 gated_actions = ["shell", "file_write", "browser_open", "browser", "memory_forget"]
 gated_domains = []
 gated_domain_categories = []
-challenge_delivery = "dm"
-challenge_timeout_secs = 120
-challenge_max_attempts = 3
 
 [security.estop]
 enabled = false
