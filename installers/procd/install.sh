@@ -19,6 +19,7 @@ info "Log file: $LOG_FILE"
 debug "SCRIPT_DIR=$SCRIPT_DIR"
 debug "ROOT_DIR=$ROOT_DIR"
 debug "SKIP_CONFIRM=${SKIP_CONFIRM:-<not set>}"
+debug "NO_CLIPROXY=${NO_CLIPROXY:-<not set>}"
 debug "TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:+<set, length=${#TELEGRAM_BOT_TOKEN}>}"
 debug "TELEGRAM_USER_ID=${TELEGRAM_USER_ID:-<not set>}"
 debug "stdin tty test: $([ -t 0 ] && echo 'interactive (tty)' || echo 'non-interactive (pipe/redirect)')"
@@ -28,10 +29,12 @@ require_procd_init_scripts() {
         error "ONLY_BINARY requires existing /etc/rc.common"
         return 1
     }
-    [ -x /etc/init.d/cliproxyapi ] || {
-        error "ONLY_BINARY requires existing /etc/init.d/cliproxyapi"
-        return 1
-    }
+    if [ "${NO_CLIPROXY:-0}" != "1" ]; then
+        [ -x /etc/init.d/cliproxyapi ] || {
+            error "ONLY_BINARY requires existing /etc/init.d/cliproxyapi"
+            return 1
+        }
+    fi
     [ -x /etc/init.d/zeroclaw ] || {
         error "ONLY_BINARY requires existing /etc/init.d/zeroclaw"
         return 1
@@ -42,7 +45,9 @@ stop_procd_services_for_only_binary() {
     require_procd_init_scripts || return 1
 
     step "Stopping services"
-    /etc/init.d/cliproxyapi stop 2>/dev/null || true
+    if [ "${NO_CLIPROXY:-0}" != "1" ]; then
+        /etc/init.d/cliproxyapi stop 2>/dev/null || true
+    fi
     /etc/init.d/zeroclaw stop 2>/dev/null || true
     delete_procd_service_state
     force_release_service_runtime 10
@@ -50,7 +55,6 @@ stop_procd_services_for_only_binary() {
 
 start_procd_services() {
     require_procd_init_scripts || return 1
-    MGMT_PORT=$(detect_management_port)
 
     step "Starting services"
 
@@ -58,54 +62,61 @@ start_procd_services() {
     prepare_fresh_service_start 10
 
     debug "Resetting procd service state before fresh start..."
-    /etc/init.d/cliproxyapi stop 2>/dev/null || true
+    if [ "${NO_CLIPROXY:-0}" != "1" ]; then
+        /etc/init.d/cliproxyapi stop 2>/dev/null || true
+    fi
     /etc/init.d/zeroclaw stop 2>/dev/null || true
     delete_procd_service_state
     force_release_service_runtime 10
 
-    MAX_CP_START_RETRIES=3
-    CP_RETRY=1
-    API_UP=0
+    if [ "${NO_CLIPROXY:-0}" != "1" ]; then
+        MGMT_PORT=$(detect_management_port)
+        MAX_CP_START_RETRIES=3
+        CP_RETRY=1
+        API_UP=0
 
-    while [ "$CP_RETRY" -le "$MAX_CP_START_RETRIES" ]; do
-        info "Starting CLIProxyAPI... (attempt ${CP_RETRY}/${MAX_CP_START_RETRIES})"
-        debug "Running: /etc/init.d/cliproxyapi start"
-        /etc/init.d/cliproxyapi start 2>&1 | while read line; do debug "  cliproxyapi: $line"; done
+        while [ "$CP_RETRY" -le "$MAX_CP_START_RETRIES" ]; do
+            info "Starting CLIProxyAPI... (attempt ${CP_RETRY}/${MAX_CP_START_RETRIES})"
+            debug "Running: /etc/init.d/cliproxyapi start"
+            /etc/init.d/cliproxyapi start 2>&1 | while read line; do debug "  cliproxyapi: $line"; done
 
-        wait_for_port_with_process_guard "$MGMT_PORT" cli-proxy-api 20 || true
+            wait_for_port_with_process_guard "$MGMT_PORT" cli-proxy-api 20 || true
 
-        API_UP=$(is_port_listening "$MGMT_PORT" && echo "1" || echo "0")
-        [ "$API_UP" = "1" ] && break
+            API_UP=$(is_port_listening "$MGMT_PORT" && echo "1" || echo "0")
+            [ "$API_UP" = "1" ] && break
 
-        warn "CLIProxyAPI (port $MGMT_PORT) did NOT start on attempt ${CP_RETRY}!"
-        show_port_snapshot "$MGMT_PORT" 3080
-        show_port_activity "$MGMT_PORT"
-        PIDS=$(process_pids cli-proxy-api)
-        [ -n "$PIDS" ] && debug "cli-proxy-api pid(s): $PIDS" || debug "cli-proxy-api pid(s): <none>"
-        logread 2>/dev/null | grep -i 'cli-proxy' | tail -8 | while IFS= read -r line; do debug "logread: $line"; done
+            warn "CLIProxyAPI (port $MGMT_PORT) did NOT start on attempt ${CP_RETRY}!"
+            show_port_snapshot "$MGMT_PORT" 3080
+            show_port_activity "$MGMT_PORT"
+            PIDS=$(process_pids cli-proxy-api)
+            [ -n "$PIDS" ] && debug "cli-proxy-api pid(s): $PIDS" || debug "cli-proxy-api pid(s): <none>"
+            logread 2>/dev/null | grep -i 'cli-proxy' | tail -8 | while IFS= read -r line; do debug "logread: $line"; done
 
-        if [ "$CP_RETRY" -lt "$MAX_CP_START_RETRIES" ]; then
-            warn "Retrying CLIProxyAPI start after forced cleanup..."
-            /etc/init.d/cliproxyapi stop 2>/dev/null || true
-            delete_procd_service_state
-            force_release_service_runtime 12
-            sleep 2
+            if [ "$CP_RETRY" -lt "$MAX_CP_START_RETRIES" ]; then
+                warn "Retrying CLIProxyAPI start after forced cleanup..."
+                /etc/init.d/cliproxyapi stop 2>/dev/null || true
+                delete_procd_service_state
+                force_release_service_runtime 12
+                sleep 2
+            fi
+
+            CP_RETRY=$((CP_RETRY + 1))
+        done
+
+        if [ "$API_UP" = "1" ]; then
+            info "CLIProxyAPI is running on port $MGMT_PORT"
+        else
+            warn "CLIProxyAPI (port $MGMT_PORT) did NOT start!"
+            show_port_snapshot "$MGMT_PORT" 3080
+            show_port_activity "$MGMT_PORT"
+            PIDS=$(process_pids cli-proxy-api)
+            [ -n "$PIDS" ] && debug "cli-proxy-api pid(s): $PIDS" || debug "cli-proxy-api pid(s): <none>"
+            logread 2>/dev/null | grep -i 'cli-proxy' | tail -5 | while IFS= read -r line; do debug "logread: $line"; done
+            error "Check: logread | grep cli-proxy"
+            return 1
         fi
-
-        CP_RETRY=$((CP_RETRY + 1))
-    done
-
-    if [ "$API_UP" = "1" ]; then
-        info "CLIProxyAPI is running on port $MGMT_PORT"
     else
-        warn "CLIProxyAPI (port $MGMT_PORT) did NOT start!"
-        show_port_snapshot "$MGMT_PORT" 3080
-        show_port_activity "$MGMT_PORT"
-        PIDS=$(process_pids cli-proxy-api)
-        [ -n "$PIDS" ] && debug "cli-proxy-api pid(s): $PIDS" || debug "cli-proxy-api pid(s): <none>"
-        logread 2>/dev/null | grep -i 'cli-proxy' | tail -5 | while IFS= read -r line; do debug "logread: $line"; done
-        error "Check: logread | grep cli-proxy"
-        return 1
+        info "NO_CLIPROXY=1: skipping CLIProxyAPI start"
     fi
 
     info "Starting ZeroClaw..."
@@ -124,9 +135,15 @@ start_procd_services() {
 
 enable_procd_autostart() {
     debug "Enabling auto-start..."
-    /etc/init.d/cliproxyapi enable 2>/dev/null || warn "Failed to enable cliproxyapi"
+    if [ "${NO_CLIPROXY:-0}" != "1" ]; then
+        /etc/init.d/cliproxyapi enable 2>/dev/null || warn "Failed to enable cliproxyapi"
+    fi
     /etc/init.d/zeroclaw enable 2>/dev/null || warn "Failed to enable zeroclaw"
-    info "Auto-start enabled for both services"
+    if [ "${NO_CLIPROXY:-0}" = "1" ]; then
+        info "Auto-start enabled for zeroclaw (cliproxy skipped)"
+    else
+        info "Auto-start enabled for both services"
+    fi
 }
 
 # -- Platform detection + confirm --------------------
@@ -186,34 +203,46 @@ else
     exit 1
 fi
 
-debug "Creating /opt/cliproxyapi/ ..."
-mkdir -p /opt/cliproxyapi
+if [ "${NO_CLIPROXY:-0}" != "1" ]; then
+    debug "Creating /opt/cliproxyapi/ ..."
+    mkdir -p /opt/cliproxyapi
 
-debug "Installing cli-proxy-api to /opt/cliproxyapi/ (prefer mv)..."
-if install_binary_from_stage "$BIN_SRC/cli-proxy-api" /opt/cliproxyapi/cli-proxy-api "cli-proxy-api"; then
-    chmod +x /opt/cliproxyapi/cli-proxy-api
-    info "  /opt/cliproxyapi/cli-proxy-api installed ($(ls -la /opt/cliproxyapi/cli-proxy-api | awk '{print $5}')B)"
+    debug "Installing cli-proxy-api to /opt/cliproxyapi/ (prefer mv)..."
+    if install_binary_from_stage "$BIN_SRC/cli-proxy-api" /opt/cliproxyapi/cli-proxy-api "cli-proxy-api"; then
+        chmod +x /opt/cliproxyapi/cli-proxy-api
+        info "  /opt/cliproxyapi/cli-proxy-api installed ($(ls -la /opt/cliproxyapi/cli-proxy-api | awk '{print $5}')B)"
+    else
+        error "FATAL: Failed to install cli-proxy-api binary!"
+        error "  Check disk space: $(df /opt 2>/dev/null | tail -1)"
+        exit 1
+    fi
 else
-    error "FATAL: Failed to install cli-proxy-api binary!"
-    error "  Check disk space: $(df /opt 2>/dev/null | tail -1)"
-    exit 1
+    info "NO_CLIPROXY=1: skipping cli-proxy-api binary installation"
 fi
 
 # -- Install configs ---------------------------------
 install_zeroclaw_config "$CONFIGS"
-install_cliproxy_config "$CONFIGS" "/opt/cliproxyapi"
+if [ "${NO_CLIPROXY:-0}" != "1" ]; then
+    install_cliproxy_config "$CONFIGS" "/opt/cliproxyapi"
+else
+    info "NO_CLIPROXY=1: skipping cliproxy config installation"
+fi
 
 # -- Install init scripts ----------------------------
 step "Installing init scripts"
 
 # Copy init scripts WITHOUT enabling (enable after start to prevent procd auto-launch)
-debug "Copying cliproxyapi init script..."
-if cp "$SCRIPT_DIR/init-scripts/cliproxyapi" /etc/init.d/cliproxyapi; then
-    chmod +x /etc/init.d/cliproxyapi
-    info "  /etc/init.d/cliproxyapi installed"
+if [ "${NO_CLIPROXY:-0}" != "1" ]; then
+    debug "Copying cliproxyapi init script..."
+    if cp "$SCRIPT_DIR/init-scripts/cliproxyapi" /etc/init.d/cliproxyapi; then
+        chmod +x /etc/init.d/cliproxyapi
+        info "  /etc/init.d/cliproxyapi installed"
+    else
+        error "FATAL: Failed to copy cliproxyapi init script!"
+        exit 1
+    fi
 else
-    error "FATAL: Failed to copy cliproxyapi init script!"
-    exit 1
+    info "NO_CLIPROXY=1: skipping cliproxyapi init script"
 fi
 
 debug "Copying zeroclaw init script..."
@@ -229,7 +258,9 @@ fi
 step "Telegram config injection"
 inject_telegram_config
 
-set_zeroclaw_provider_port 8317 || exit 1
+if [ "${NO_CLIPROXY:-0}" != "1" ]; then
+    set_zeroclaw_provider_port 8317 || exit 1
+fi
 
 # -- Start services ----------------------------------
 start_procd_services || exit 1

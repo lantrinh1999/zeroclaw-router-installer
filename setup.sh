@@ -1,18 +1,21 @@
 #!/bin/sh
 # Quick Setup -- chay tu may tinh, tu dong upload + cai
-# Usage: sh setup.sh [device-ip] [-p port] [--only-binary]
+# Usage: sh setup.sh [device-ip] [-p port] [--only-binary] [--no-cliproxy]
 # Example: sh setup.sh 192.168.81.1
 #          sh setup.sh localhost -p 2222
 #          sh setup.sh 192.168.81.1 --only-binary
+#          sh setup.sh 192.168.81.1 --no-cliproxy
 # Supports: aarch64/OpenWrt
 
 # Parse arguments: setup.sh [ip] [-p port] [--only-binary]
 ROUTER_IP="192.168.81.1"
 SSH_PORT="22"
 ONLY_BINARY=0
+NO_CLIPROXY=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --only-binary) ONLY_BINARY=1; shift ;;
+        --no-cliproxy) NO_CLIPROXY=1; shift ;;
         -p) SSH_PORT="$2"; shift 2 ;;
         *)  ROUTER_IP="$1"; shift ;;
     esac
@@ -123,10 +126,15 @@ echo "[OK] Installer: $INSTALLER ($BIN_ARCH)"
 echo ""
 
 # Check binaries exist locally
-if [ ! -f "$SCRIPT_DIR/binaries/$BIN_ARCH/zeroclaw" ] || [ ! -f "$SCRIPT_DIR/binaries/$BIN_ARCH/cli-proxy-api" ]; then
-    echo "[ERROR] Missing binaries for $BIN_ARCH"
+if [ ! -f "$SCRIPT_DIR/binaries/$BIN_ARCH/zeroclaw" ]; then
+    echo "[ERROR] Missing zeroclaw binary for $BIN_ARCH"
     echo "  Expected: binaries/$BIN_ARCH/zeroclaw"
+    exit 1
+fi
+if [ "$NO_CLIPROXY" != "1" ] && [ ! -f "$SCRIPT_DIR/binaries/$BIN_ARCH/cli-proxy-api" ]; then
+    echo "[ERROR] Missing cli-proxy-api binary for $BIN_ARCH"
     echo "  Expected: binaries/$BIN_ARCH/cli-proxy-api"
+    echo "  (Use --no-cliproxy to skip cliproxy installation)"
     exit 1
 fi
 
@@ -236,10 +244,14 @@ echo "[3/5] Running installer (installer: $INSTALLER)..."
 echo "-------------------------------------"
 # CRITICAL: < /dev/null prevents SSH from consuming stdin
 # which would cause 'read' calls in install.sh to fail with set -e
+REMOTE_ENV="SKIP_CONFIRM=1"
+if [ "$NO_CLIPROXY" = "1" ]; then
+    REMOTE_ENV="$REMOTE_ENV NO_CLIPROXY=1"
+fi
 if [ "$ONLY_BINARY" = "1" ]; then
-    REMOTE_INSTALL_CMD="cd $REMOTE_DIR && ONLY_BINARY=1 SKIP_CONFIRM=1 sh installers/$INSTALLER/install.sh"
+    REMOTE_INSTALL_CMD="cd $REMOTE_DIR && $REMOTE_ENV ONLY_BINARY=1 sh installers/$INSTALLER/install.sh"
 else
-    REMOTE_INSTALL_CMD="cd $REMOTE_DIR && SKIP_CONFIRM=1 TELEGRAM_BOT_TOKEN='$TELEGRAM_BOT_TOKEN' TELEGRAM_USER_ID='$TELEGRAM_USER_ID' sh installers/$INSTALLER/install.sh"
+    REMOTE_INSTALL_CMD="cd $REMOTE_DIR && $REMOTE_ENV TELEGRAM_BOT_TOKEN='$TELEGRAM_BOT_TOKEN' TELEGRAM_USER_ID='$TELEGRAM_USER_ID' sh installers/$INSTALLER/install.sh"
 fi
 
 ssh $SSH_OPTS "root@$ROUTER_IP" "$REMOTE_INSTALL_CMD" < /dev/null
@@ -263,12 +275,31 @@ echo ""
 echo "[4/5] Verifying..."
 sleep 3
 
-if [ "$ONLY_BINARY" = "1" ]; then
+if [ "$NO_CLIPROXY" = "1" ]; then
+    echo "[INFO] --no-cliproxy: bo qua cliproxy verification"
+    # Verify zeroclaw process is running
+    ZC_RUNNING=$(ssh $SSH_OPTS "root@$ROUTER_IP" "pgrep -x zeroclaw >/dev/null 2>&1 && echo yes || echo no" < /dev/null)
+    if [ "$ZC_RUNNING" = "yes" ]; then
+        echo "[OK] ZeroClaw is running"
+    else
+        echo "[WARN] ZeroClaw process not detected"
+        echo "[INFO] Fetching install log for diagnostics..."
+        ssh $SSH_OPTS "root@$ROUTER_IP" "cat /tmp/zeroclaw-install.log 2>/dev/null" < /dev/null || true
+    fi
+elif [ "$ONLY_BINARY" = "1" ]; then
     echo "[INFO] ONLY_BINARY mode: bo qua provider sync de giu nguyen config hien co"
     VERIFY_PORT=$(ssh $SSH_OPTS "root@$ROUTER_IP" "cd $REMOTE_DIR && . ./common.sh >/dev/null 2>&1 && detect_management_port" < /dev/null 2>/dev/null | tr -d '\r')
     case "$VERIFY_PORT" in
         ''|*[!0-9]*) VERIFY_PORT="8317" ;;
     esac
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 "http://$ROUTER_IP:$VERIFY_PORT/management.html" 2>/dev/null)
+    if [ "$HTTP_CODE" = "200" ]; then
+        echo "[OK] Management UI: http://$ROUTER_IP:$VERIFY_PORT/management.html"
+    else
+        echo "[WARN] Management UI returned HTTP ${HTTP_CODE:-000} on port $VERIFY_PORT"
+        echo "[INFO] Fetching install log for diagnostics..."
+        ssh $SSH_OPTS "root@$ROUTER_IP" "cat /tmp/zeroclaw-install.log 2>/dev/null" < /dev/null || true
+    fi
 else
     # Force ZeroClaw to use the single local API port.
     if ssh $SSH_OPTS "root@$ROUTER_IP" "CONFIG=/root/.zeroclaw/config.toml; [ -f \"\$CONFIG\" ] && sed -i 's|127.0.0.1:[0-9][0-9]*|127.0.0.1:8317|g' \"\$CONFIG\"" < /dev/null; then
@@ -276,15 +307,14 @@ else
     else
         echo "[WARN] Could not sync /root/.zeroclaw/config.toml to port 8317"
     fi
-fi
-
-HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 "http://$ROUTER_IP:$VERIFY_PORT/management.html" 2>/dev/null)
-if [ "$HTTP_CODE" = "200" ]; then
-    echo "[OK] Management UI: http://$ROUTER_IP:$VERIFY_PORT/management.html"
-else
-    echo "[WARN] Management UI returned HTTP ${HTTP_CODE:-000} on port $VERIFY_PORT"
-    echo "[INFO] Fetching install log for diagnostics..."
-    ssh $SSH_OPTS "root@$ROUTER_IP" "cat /tmp/zeroclaw-install.log 2>/dev/null" < /dev/null || true
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 "http://$ROUTER_IP:$VERIFY_PORT/management.html" 2>/dev/null)
+    if [ "$HTTP_CODE" = "200" ]; then
+        echo "[OK] Management UI: http://$ROUTER_IP:$VERIFY_PORT/management.html"
+    else
+        echo "[WARN] Management UI returned HTTP ${HTTP_CODE:-000} on port $VERIFY_PORT"
+        echo "[INFO] Fetching install log for diagnostics..."
+        ssh $SSH_OPTS "root@$ROUTER_IP" "cat /tmp/zeroclaw-install.log 2>/dev/null" < /dev/null || true
+    fi
 fi
 
 # Also save install log locally for reference
@@ -305,10 +335,17 @@ ssh $SSH_OPTS "root@$ROUTER_IP" "rm -rf $REMOTE_DIR" < /dev/null \
 # Done
 # -----------------------------------------------------
 echo ""
-echo "Done! Open http://$ROUTER_IP:$VERIFY_PORT/management.html"
+if [ "$NO_CLIPROXY" = "1" ]; then
+    echo "Done! ZeroClaw installed (without cliproxy)"
+else
+    echo "Done! Open http://$ROUTER_IP:$VERIFY_PORT/management.html"
+fi
 echo "  Installer: $INSTALLER ($BIN_ARCH)"
 if [ "$ONLY_BINARY" = "1" ]; then
     echo "  Mode:       only-binary"
+fi
+if [ "$NO_CLIPROXY" = "1" ]; then
+    echo "  Mode:       no-cliproxy (zeroclaw only)"
 fi
 echo "  Install log (device): /tmp/zeroclaw-install.log"
 echo "  Install log (local):  $LOCAL_LOG"
